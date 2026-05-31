@@ -199,17 +199,10 @@ export default function App() {
         type:"image",
         source:{ type:"base64", media_type:f.type||"image/jpeg", data: await toB64(f) }
       })));
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{
+      const resp = await fetch("/api/ler-prints",{
         method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY,
-          "anthropic-version":"2023-06-01",
-          "anthropic-dangerous-direct-browser-access":"true"
-        },
+        headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
-          model:"claude-haiku-4-5-20251001",
-          max_tokens:1000,
           messages:[{
             role:"user",
             content:[
