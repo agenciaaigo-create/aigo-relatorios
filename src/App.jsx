@@ -214,13 +214,18 @@ export default function App() {
         })
       });
       const json = await resp.json();
+      if (json.error) {
+        setReadMsg("⚠️ Erro: " + (typeof json.detalhe === "string" ? json.detalhe : JSON.stringify(json.detalhe || json.error)));
+        setReading(false);
+        return;
+      }
       const raw = (json.content||[]).map(b=>b.text||"").join("");
       const clean = raw.replace(/```json[\s\S]*?```|```/g,"").trim();
       const parsed = JSON.parse(clean);
       setForm(f=>({...f,...parsed}));
       setReadMsg("✅ Dados preenchidos automaticamente! Confira e ajuste se necessário.");
     } catch(e) {
-      setReadMsg("⚠️ Não consegui ler os prints. Preencha manualmente.");
+      setReadMsg("⚠️ Não consegui ler os prints: " + String(e));
     }
     setReading(false);
   }
