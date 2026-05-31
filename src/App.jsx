@@ -189,15 +189,28 @@ export default function App() {
     setReading(true);
     setReadMsg("Analisando prints com IA...");
     try {
-      const toB64 = file => new Promise((res,rej)=>{
-        const r = new FileReader();
-        r.onload = () => res(r.result.split(",")[1]);
-        r.onerror = rej;
-        r.readAsDataURL(file);
+      const compress = file => new Promise((res,rej)=>{
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const maxW = 1200;
+          const scale = Math.min(1, maxW / img.width);
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          res(dataUrl.split(",")[1]);
+        };
+        img.onerror = rej;
+        img.src = url;
       });
       const imgs = await Promise.all([...files].map(async f=>({
         type:"image",
-        source:{ type:"base64", media_type:f.type||"image/jpeg", data: await toB64(f) }
+        source:{ type:"base64", media_type:"image/jpeg", data: await compress(f) }
       })));
       const resp = await fetch("/api/ler-prints",{
         method:"POST",
