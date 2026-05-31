@@ -10,8 +10,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    let body = req.body;
-    if (typeof body === "string") body = JSON.parse(body);
+    // Le o corpo da requisicao manualmente (forma mais confiavel na Vercel)
+    let raw = "";
+    if (req.body) {
+      raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    } else {
+      raw = await new Promise((resolve, reject) => {
+        let data = "";
+        req.on("data", chunk => { data += chunk; });
+        req.on("end", () => resolve(data));
+        req.on("error", reject);
+      });
+    }
+
+    const body = JSON.parse(raw);
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -30,10 +42,7 @@ export default async function handler(req, res) {
     const data = await resp.json();
 
     if (!resp.ok) {
-      res.status(resp.status).json({
-        error: "Erro da Anthropic",
-        detalhe: data,
-      });
+      res.status(resp.status).json({ error: "Erro da Anthropic", detalhe: data });
       return;
     }
 
