@@ -1,11 +1,18 @@
-export const config = { runtime: "edge" };
-
-export default async function handler(req) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
+
+  if (!process.env.ANTHROPIC_KEY) {
+    res.status(500).json({ error: "ANTHROPIC_KEY nao configurada na Vercel" });
+    return;
+  }
+
   try {
-    const body = await req.json();
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(body);
+
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -19,12 +26,19 @@ export default async function handler(req) {
         messages: body.messages,
       }),
     });
+
     const data = await resp.json();
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+
+    if (!resp.ok) {
+      res.status(resp.status).json({
+        error: "Erro da Anthropic",
+        detalhe: data,
+      });
+      return;
+    }
+
+    res.status(200).json(data);
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    res.status(500).json({ error: "Erro na funcao", detalhe: String(e) });
   }
 }
