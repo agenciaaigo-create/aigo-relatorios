@@ -226,19 +226,20 @@ export default function App() {
           }]
         })
       });
-      const json = await resp.json();
-      if (json.error) {
-        setReadMsg("⚠️ Erro: " + (typeof json.detalhe === "string" ? json.detalhe : JSON.stringify(json.detalhe || json.error)));
+      const wrapper = await resp.json();
+      if (!wrapper.ok) {
+        setReadMsg("⚠️ Anthropic respondeu com erro " + wrapper.status + ": " + wrapper.raw);
         setReading(false);
         return;
       }
+      const json = JSON.parse(wrapper.raw);
       const raw = (json.content||[]).map(b=>b.text||"").join("");
       const clean = raw.replace(/```json[\s\S]*?```|```/g,"").trim();
       const parsed = JSON.parse(clean);
       setForm(f=>({...f,...parsed}));
       setReadMsg("✅ Dados preenchidos automaticamente! Confira e ajuste se necessário.");
     } catch(e) {
-      setReadMsg("⚠️ Não consegui ler os prints: " + String(e));
+      setReadMsg("⚠️ Erro: " + String(e));
     }
     setReading(false);
   }
