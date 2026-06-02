@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const CLIENTS = [
   "Aline","Americana","AP Engenharia","Bioessência","Coperfarma",
@@ -170,13 +170,19 @@ const BASE = `${FONTS}*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrol
 export default function App() {
   const [screen, setScreen] = useState("home");
   const [clientIdx, setClientIdx] = useState(0);
-  const [data, setData] = useState({});
+  const [data, setData] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("aigo-data") || "{}"); } catch { return {}; }
+  });
   const [form, setForm] = useState({...EMPTY});
   const [search, setSearch] = useState("");
   const [pdfHtml, setPdfHtml] = useState("");
   const [reading, setReading] = useState(false);
   const [readMsg, setReadMsg] = useState("");
   const fileRef = useRef();
+
+  useEffect(() => {
+    localStorage.setItem("aigo-data", JSON.stringify(data));
+  }, [data]);
 
   const cName = CLIENTS[clientIdx];
   const cColor = clr(clientIdx);
@@ -270,7 +276,7 @@ export default function App() {
     const w = window.open("","_blank");
     w.document.write(pdfHtml);
     w.document.close();
-    setTimeout(() => w.print(), 600);
+    setTimeout(() => w.print(), 1800);
   }
 
   const filtered = CLIENTS.map((n,i) => ({n,i})).filter(({n}) => n.toLowerCase().includes(search.toLowerCase()));
@@ -463,8 +469,14 @@ export default function App() {
           </div>
           <div style={{gridColumn:"span 3",display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
             {btn("Cancelar", ()=>setScreen("client"), "rgba(255,255,255,.05)", "rgba(255,255,255,.55)")}
-            {btn("Salvar", ()=>{handleSave();setScreen("client");}, "rgba(255,255,255,.08)", "rgba(255,255,255,.8)")}
-            {btn("📄 Salvar e Gerar PDF", ()=>{handleSave();handleGenPDF();}, cColor)}
+            {btn("Salvar", ()=>{
+              if(!form.mesAno){ setReadMsg("⚠️ Preencha o campo Mês / Ano antes de salvar."); return; }
+              handleSave(); setScreen("client");
+            }, "rgba(255,255,255,.08)", "rgba(255,255,255,.8)")}
+            {btn("📄 Salvar e Gerar PDF", ()=>{
+              if(!form.mesAno){ setReadMsg("⚠️ Preencha o campo Mês / Ano antes de salvar."); return; }
+              handleSave(); handleGenPDF();
+            }, cColor)}
           </div>
         </div>
       </div>
