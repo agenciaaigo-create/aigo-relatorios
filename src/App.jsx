@@ -234,7 +234,8 @@ export default function App() {
       }
       const json = JSON.parse(wrapper.raw);
       const raw = (json.content||[]).map(b=>b.text||"").join("");
-      const clean = raw.replace(/```json[\s\S]*?```|```/g,"").trim();
+      const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const clean = (match ? match[1] : raw).trim();
       const parsed = JSON.parse(clean);
       setForm(f=>({...f,...parsed}));
       setReadMsg("✅ Dados preenchidos automaticamente! Confira e ajuste se necessário.");
