@@ -192,6 +192,10 @@ export default function App() {
 
   async function handleImages(files) {
     if(!files.length) return;
+    if(files.length > 5) {
+      setReadMsg("⚠️ Envie no máximo 5 prints por vez.");
+      return;
+    }
     setReading(true);
     setReadMsg("Analisando prints com IA...");
     try {
@@ -200,15 +204,16 @@ export default function App() {
         const url = URL.createObjectURL(file);
         img.onload = () => {
           URL.revokeObjectURL(url);
-          const maxW = 1200;
-          const scale = Math.min(1, maxW / img.width);
-          const w = Math.round(img.width * scale);
-          const h = Math.round(img.height * scale);
+          const maxW = 800, maxH = 1500;
+          let scale = Math.min(1, maxW / img.width);
+          let w = Math.round(img.width * scale);
+          let h = Math.round(img.height * scale);
+          if(h > maxH) { scale = maxH / h; w = Math.round(w * scale); h = maxH; }
           const canvas = document.createElement("canvas");
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
           res(dataUrl.split(",")[1]);
         };
         img.onerror = rej;

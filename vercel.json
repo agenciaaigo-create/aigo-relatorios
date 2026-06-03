@@ -3,5 +3,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
-  ]
+  ],
+  "functions": {
+    "api/ler-prints.js": {
+      "maxDuration": 30
+    }
+  }
 }
