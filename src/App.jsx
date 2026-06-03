@@ -192,8 +192,8 @@ export default function App() {
 
   async function handleImages(files) {
     if(!files.length) return;
-    if(files.length > 5) {
-      setReadMsg("⚠️ Envie no máximo 5 prints por vez.");
+    if(files.length > 10) {
+      setReadMsg("⚠️ Envie no máximo 10 prints por vez.");
       return;
     }
     setReading(true);
@@ -204,7 +204,7 @@ export default function App() {
         const url = URL.createObjectURL(file);
         img.onload = () => {
           URL.revokeObjectURL(url);
-          const maxW = 800, maxH = 1500;
+          const maxW = 750, maxH = 1300;
           let scale = Math.min(1, maxW / img.width);
           let w = Math.round(img.width * scale);
           let h = Math.round(img.height * scale);
@@ -213,7 +213,7 @@ export default function App() {
           canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
           res(dataUrl.split(",")[1]);
         };
         img.onerror = rej;
@@ -237,6 +237,10 @@ export default function App() {
           }]
         })
       });
+      if(!resp.ok) {
+        if(resp.status === 413) throw new Error("Imagens muito grandes para enviar. Tente com menos prints.");
+        throw new Error("Erro ao enviar prints (HTTP " + resp.status + "). Tente novamente.");
+      }
       const wrapper = await resp.json();
       if (!wrapper.ok) {
         setReadMsg("⚠️ Anthropic respondeu com erro " + wrapper.status + ": " + wrapper.raw);
