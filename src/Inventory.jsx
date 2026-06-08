@@ -70,6 +70,43 @@ function saveData(d) {
   localStorage.setItem("aigo-inventory-v1", JSON.stringify(d));
 }
 
+function loadConfig() {
+  try { return JSON.parse(localStorage.getItem("aigo-inventory-cfg")||"{}"); }
+  catch { return {}; }
+}
+
+function saveConfig(c) {
+  localStorage.setItem("aigo-inventory-cfg", JSON.stringify(c));
+}
+
+// Fuzzy match: "Doma Cosméticos" ↔ "doma cosmeticos"
+function normName(s) {
+  return s.toLowerCase()
+    .normalize("NFD").replace(/\p{Diacritic}/gu,"")
+    .replace(/[^a-z0-9]/g," ").replace(/\s+/g," ").trim();
+}
+
+function matchClientToFolder(clientName, folders) {
+  const cn = normName(clientName);
+  return folders.find(f => normName(f.name) === cn)
+    || folders.find(f => normName(f.name).includes(cn) || cn.includes(normName(f.name)));
+}
+
+function monthNumFromYearMonth(ym) { return parseInt(ym.split("-")[1]); }
+
+function matchMonthFolder(folders, monthNum) {
+  const PT = ["","janeiro","fevereiro","março","abril","maio","junho",
+              "julho","agosto","setembro","outubro","novembro","dezembro"];
+  const target = PT[monthNum];
+  return folders.find(f => {
+    const low = normName(f.name);
+    if (low.includes(target)) return true;
+    const numMatch = f.name.match(/(\d{1,2})/);
+    if (numMatch && parseInt(numMatch[1]) === monthNum) return true;
+    return false;
+  });
+}
+
 function getItems(data, cid, month) { return data[cid]?.[month] || []; }
 
 function stats(items) {
@@ -166,6 +203,185 @@ function StatCard({ label, value, color, icon }) {
         fontFamily:"'Montserrat',sans-serif",lineHeight:1}}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// ── Config Modal ───────────────────────────────────────────────────────────
+function ConfigModal({ config, onClose, onSave }) {
+  const [rootId, setRootId] = useState(config.rootFolderId || "");
+  const inputStyle = {
+    background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)",
+    borderRadius:10, padding:"9px 13px", color:"#fff",
+    fontFamily:"'Montserrat',sans-serif", fontSize:12, outline:"none", width:"100%",
+  };
+  return (
+    <div style={{
+      position:"fixed",inset:0,background:"rgba(0,0,0,.75)",backdropFilter:"blur(6px)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20,
+    }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{
+        background:"#120020",border:"1px solid rgba(255,255,255,.1)",
+        borderRadius:20,padding:28,width:"100%",maxWidth:460,
+        boxShadow:"0 32px 80px rgba(0,0,0,.8)",fontFamily:"'Montserrat',sans-serif",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <span style={{fontSize:22}}>⚙️</span>
+          <h3 style={{color:"#fff",fontWeight:800,fontSize:16,margin:0}}>Configurar Google Drive</h3>
+          <button onClick={onClose} style={{
+            marginLeft:"auto",background:"rgba(255,255,255,.08)",border:"none",
+            borderRadius:8,color:"rgba(255,255,255,.6)",cursor:"pointer",
+            width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
+          }}>✕</button>
+        </div>
+
+        <p style={{color:"rgba(255,255,255,.4)",fontSize:12,lineHeight:1.6,marginBottom:18}}>
+          Cole o ID da pasta raiz do Drive (ex: a pasta <strong style={{color:"rgba(255,255,255,.7)"}}>2026</strong>).
+          O sistema vai descobrir automaticamente as pastas de cada cliente e mês dentro dela.
+        </p>
+
+        <div style={{marginBottom:6}}>
+          <label style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.32)",
+            textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:6}}>
+            ID da pasta raiz (2026)
+          </label>
+          <input value={rootId} onChange={e=>setRootId(e.target.value)}
+            placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs"
+            style={inputStyle}
+            onFocus={e=>e.target.style.borderColor="rgba(160,100,255,.6)"}
+            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.1)"}/>
+        </div>
+
+        <p style={{color:"rgba(255,255,255,.25)",fontSize:10,marginBottom:20,lineHeight:1.5}}>
+          Abra a pasta no Drive → copie o trecho após <code style={{color:"rgba(255,255,255,.4)"}}>/folders/</code> na URL.
+        </p>
+
+        <button onClick={()=>onSave({ rootFolderId: rootId.trim() })}
+          disabled={!rootId.trim()}
+          style={{
+            width:"100%",background:"linear-gradient(135deg,#7C3AED,#4338CA)",
+            border:"none",borderRadius:12,padding:"11px 0",
+            color:"#fff",fontWeight:700,fontSize:13,
+            fontFamily:"'Montserrat',sans-serif",cursor:"pointer",
+            opacity:rootId.trim()?1:0.5,
+            boxShadow:"0 4px 16px rgba(124,58,237,.4)",
+          }}>
+          Salvar configuração
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Auto Sync Modal ────────────────────────────────────────────────────────
+function AutoSyncModal({ rootFolderId, month, onClose, onDone }) {
+  const [log, setLog]       = useState([]);
+  const [running, setRunning] = useState(true);
+  const logRef = useRef();
+
+  useEffect(() => {
+    let cancelled = false;
+    const monthNum = monthNumFromYearMonth(month);
+    const addLog = (msg, type="info") => {
+      if (cancelled) return;
+      setLog(p => [...p, { msg, type, t: Date.now() }]);
+      setTimeout(() => { if(logRef.current) logRef.current.scrollTop = 99999; }, 50);
+    };
+
+    async function run() {
+      try {
+        addLog("Descobrindo pastas de clientes...");
+        const r1 = await fetch("/api/drive-discover", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ rootFolderId }),
+        });
+        const { clients: driveFolders, error: e1 } = await r1.json();
+        if (e1) throw new Error(e1);
+        addLog(`${driveFolders.length} pasta(s) encontrada(s) no Drive.`);
+
+        const results = {};
+        for (const clientName of CLIENTS_LIST) {
+          if (cancelled) return;
+          const folder = matchClientToFolder(clientName, driveFolders);
+          if (!folder) { addLog(`${clientName} — pasta não encontrada`, "skip"); continue; }
+
+          // Discover month folders
+          const r2 = await fetch("/api/drive-discover", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({ clientFolderId: folder.id }),
+          });
+          const { months: monthFolders, error: e2 } = await r2.json();
+          if (e2) { addLog(`${clientName} — erro: ${e2}`, "error"); continue; }
+
+          const mf = matchMonthFolder(monthFolders || [], monthNum);
+          if (!mf) { addLog(`${clientName} — mês não encontrado`, "skip"); continue; }
+
+          // Get files
+          const r3 = await fetch("/api/drive-discover", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({ monthFolderId: mf.id }),
+          });
+          const { files, error: e3 } = await r3.json();
+          if (e3) { addLog(`${clientName} — erro: ${e3}`, "error"); continue; }
+
+          results[clientName] = files || [];
+          addLog(`${clientName} — ${(files||[]).length} arquivo(s) importado(s)`, "ok");
+        }
+
+        if (!cancelled) { setRunning(false); onDone(results, month); }
+      } catch(e) {
+        if (!cancelled) { addLog("Erro: "+e.message, "error"); setRunning(false); }
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, []);
+
+  const logColors = { info:"rgba(255,255,255,.5)", ok:"#34D399", skip:"rgba(255,255,255,.3)", error:"#F87171" };
+
+  return (
+    <div style={{
+      position:"fixed",inset:0,background:"rgba(0,0,0,.8)",backdropFilter:"blur(8px)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20,
+    }}>
+      <div style={{
+        background:"#120020",border:"1px solid rgba(255,255,255,.1)",
+        borderRadius:20,padding:28,width:"100%",maxWidth:480,
+        boxShadow:"0 32px 80px rgba(0,0,0,.8)",fontFamily:"'Montserrat',sans-serif",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <span style={{fontSize:22}}>{running?"⏳":"✅"}</span>
+          <h3 style={{color:"#fff",fontWeight:800,fontSize:16,margin:0}}>
+            {running ? "Sincronizando Drive..." : "Sincronização concluída"}
+          </h3>
+        </div>
+
+        <div ref={logRef} style={{
+          background:"rgba(0,0,0,.4)",borderRadius:12,
+          padding:"12px 14px",maxHeight:280,overflowY:"auto",
+          fontFamily:"monospace",fontSize:11,lineHeight:1.8,
+          border:"1px solid rgba(255,255,255,.07)",marginBottom:18,
+        }}>
+          {log.map((l,i)=>(
+            <div key={i} style={{color:logColors[l.type]||"#fff"}}>
+              {l.type==="ok"?"✓ ":l.type==="error"?"✗ ":l.type==="skip"?"— ":"  "}
+              {l.msg}
+            </div>
+          ))}
+          {running && <div style={{color:"rgba(255,255,255,.3)",animation:"none"}}>...</div>}
+        </div>
+
+        <button onClick={onClose} disabled={running} style={{
+          width:"100%",background: running?"rgba(255,255,255,.05)":"linear-gradient(135deg,#059669,#047857)",
+          border:"none",borderRadius:12,padding:"11px 0",
+          color: running?"rgba(255,255,255,.3)":"#fff",
+          fontWeight:700,fontSize:13,fontFamily:"'Montserrat',sans-serif",
+          cursor:running?"not-allowed":"pointer",
+          boxShadow: running?"none":"0 4px 14px rgba(5,150,105,.35)",
+        }}>
+          {running ? "Aguarde..." : "Fechar"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -437,7 +653,7 @@ function DriveModal({ clientName, clientId, month, onClose, onSync }) {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-function Dashboard({ data, month, onMonthChange, onOpenClient, months }) {
+function Dashboard({ data, month, onMonthChange, onOpenClient, months, config, onOpenConfig, onAutoSync }) {
   const globalStats = CLIENTS_LIST.reduce((acc,_,idx)=>{
     const cid = slug(CLIENTS_LIST[idx]);
     const s = stats(getItems(data,cid,month));
@@ -478,8 +694,8 @@ function Dashboard({ data, month, onMonthChange, onOpenClient, months }) {
           </div>
         </div>
 
-        {/* Month selector */}
-        <div style={{display:"flex",alignItems:"center",gap:6}}>
+        {/* Right: month selector + actions */}
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {months.map(m=>(
             <button key={m.val} onClick={()=>onMonthChange(m.val)} style={{
               background: m.val===month?"rgba(124,58,237,.25)":"rgba(255,255,255,.04)",
@@ -491,6 +707,38 @@ function Dashboard({ data, month, onMonthChange, onOpenClient, months }) {
               transition:"all .15s",
             }}>{m.label}</button>
           ))}
+
+          {/* Separator */}
+          <div style={{width:1,height:24,background:"rgba(255,255,255,.1)",margin:"0 4px"}}/>
+
+          {/* Auto-sync button */}
+          {config.rootFolderId && (
+            <button onClick={onAutoSync} title="Sincronizar todos os clientes com o Drive" style={{
+              background:"rgba(52,211,153,.12)",border:"1px solid rgba(52,211,153,.25)",
+              borderRadius:10,padding:"6px 14px",color:"#34D399",
+              fontFamily:"'Montserrat',sans-serif",fontSize:12,fontWeight:700,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:6,
+              transition:"all .15s",whiteSpace:"nowrap",
+            }}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(52,211,153,.2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(52,211,153,.12)"}>
+              ↺ Auto-Sync
+            </button>
+          )}
+
+          {/* Settings */}
+          <button onClick={onOpenConfig} title="Configurar Google Drive" style={{
+            background: config.rootFolderId?"rgba(124,58,237,.15)":"rgba(255,255,255,.05)",
+            border: config.rootFolderId?"1px solid rgba(124,58,237,.35)":"1px solid rgba(255,255,255,.1)",
+            borderRadius:10,padding:"6px 10px",
+            color: config.rootFolderId?"#c084fc":"rgba(255,255,255,.5)",
+            fontFamily:"'Montserrat',sans-serif",fontSize:14,
+            cursor:"pointer",transition:"all .15s",
+          }}
+          onMouseEnter={e=>e.currentTarget.style.background="rgba(124,58,237,.25)"}
+          onMouseLeave={e=>e.currentTarget.style.background=config.rootFolderId?"rgba(124,58,237,.15)":"rgba(255,255,255,.05)"}>
+            ⚙️
+          </button>
         </div>
       </div>
 
@@ -996,40 +1244,90 @@ function ContentRow({ item, clientColor, onCycleStatus, onEdit, onDelete }) {
 
 // ── Root ───────────────────────────────────────────────────────────────────
 export default function Inventory() {
-  const [view,           setView]           = useState("dashboard");
-  const [selectedIdx,    setSelectedIdx]    = useState(null);
-  const [selectedMonth,  setSelectedMonth]  = useState(currentMonth());
-  const [data,           setData]           = useState(loadData);
+  const [view,          setView]          = useState("dashboard");
+  const [selectedIdx,   setSelectedIdx]   = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth());
+  const [data,          setData]          = useState(loadData);
+  const [config,        setConfig]        = useState(loadConfig);
+  const [showConfig,    setShowConfig]    = useState(false);
+  const [showAutoSync,  setShowAutoSync]  = useState(false);
 
   useEffect(()=>{ saveData(data); }, [data]);
+  useEffect(()=>{ saveConfig(config); }, [config]);
 
   const months = getMonthOptions();
 
   function openClient(idx) { setSelectedIdx(idx); setView("client"); }
   function goBack()        { setView("dashboard"); setSelectedIdx(null); }
 
+  function handleAutoSyncDone(results, month) {
+    // results: { clientName: [files] }
+    setData(prev => {
+      const next = { ...prev };
+      for (const [clientName, files] of Object.entries(results)) {
+        const cid      = slug(clientName);
+        const existing = next[cid]?.[month] || [];
+        const existingNames = new Set(existing.map(i => i.name));
+        const newItems = files
+          .filter(f => !existingNames.has(f.name))
+          .map(f => ({ id:uid(), name:f.name, type:f.type||"Outro",
+            platform:"Instagram", status:"pendente", scheduledDate:"", notes:"",
+            driveFileId:f.id||"" }));
+        if (newItems.length > 0) {
+          next[cid] = { ...(next[cid]||{}), [month]: [...existing, ...newItems] };
+        }
+      }
+      return next;
+    });
+  }
+
   if (view==="client" && selectedIdx!==null) {
     return (
-      <ClientDetail
-        clientName={CLIENTS_LIST[selectedIdx]}
-        clientIdx={selectedIdx}
-        data={data}
-        month={selectedMonth}
-        onMonthChange={setSelectedMonth}
-        onBack={goBack}
-        onSetData={setData}
-        months={months}
-      />
+      <>
+        <ClientDetail
+          clientName={CLIENTS_LIST[selectedIdx]}
+          clientIdx={selectedIdx}
+          data={data}
+          month={selectedMonth}
+          onMonthChange={setSelectedMonth}
+          onBack={goBack}
+          onSetData={setData}
+          months={months}
+        />
+        {showConfig && (
+          <ConfigModal config={config} onClose={()=>setShowConfig(false)}
+            onSave={c=>{ setConfig(c); setShowConfig(false); }}/>
+        )}
+      </>
     );
   }
 
   return (
-    <Dashboard
-      data={data}
-      month={selectedMonth}
-      onMonthChange={setSelectedMonth}
-      onOpenClient={openClient}
-      months={months}
-    />
+    <>
+      <Dashboard
+        data={data}
+        month={selectedMonth}
+        onMonthChange={setSelectedMonth}
+        onOpenClient={openClient}
+        months={months}
+        config={config}
+        onOpenConfig={()=>setShowConfig(true)}
+        onAutoSync={()=>setShowAutoSync(true)}
+      />
+
+      {showConfig && (
+        <ConfigModal config={config} onClose={()=>setShowConfig(false)}
+          onSave={c=>{ setConfig(c); setShowConfig(false); }}/>
+      )}
+
+      {showAutoSync && config.rootFolderId && (
+        <AutoSyncModal
+          rootFolderId={config.rootFolderId}
+          month={selectedMonth}
+          onClose={()=>setShowAutoSync(false)}
+          onDone={(results, month)=>{ handleAutoSyncDone(results, month); }}
+        />
+      )}
+    </>
   );
 }
