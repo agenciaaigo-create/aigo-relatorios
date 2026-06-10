@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 const CLIENTS = [
   "Aline","Americana","AP Engenharia","Bioessência","Coperfarma",
   "Doma Cosméticos","Fran Cendron","Ingalimp","Isadora","Juninho Vende",
-  "Leda","Manu Arquitetura","Marcela Gambine","Mari Garcia","Murilo Bianco",
+  "Leda","Manu Arquitetura","Marcela - Lash e Brown","Mari Garcia","Murilo Bianco",
   "Nathalia","Petshop","Suellem","Vikce","Wood",
 ];
 
