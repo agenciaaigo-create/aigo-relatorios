@@ -1278,7 +1278,7 @@ export default function Inventory() {
         const newItems = files
           .filter(f => !existingNames.has(f.name))
           .map(f => ({ id:uid(), name:f.name, type:f.type||"Outro",
-            platform:"Instagram", status:"pendente", scheduledDate:"", notes:"",
+            platform:"Instagram", status:"pendente", scheduledDate:"", notes:f.notes||"",
             driveFileId:f.id||"" }));
         if (newItems.length > 0) {
           next[cid] = { ...(next[cid]||{}), [month]: [...existing, ...newItems] };

@@ -26,6 +26,29 @@ function guessType(name) {
   return "Outro";
 }
 
+function isMediaFile(f) {
+  const name = f.name.toLowerCase();
+  const ext  = name.slice(name.lastIndexOf("."));
+  return VIDEO_EXTS.has(ext) || IMAGE_EXTS.has(ext) ||
+         f.mimeType?.startsWith("video/") || f.mimeType?.startsWith("image/");
+}
+
+function isVideoFile(f) {
+  const name = f.name.toLowerCase();
+  const ext  = name.slice(name.lastIndexOf("."));
+  return VIDEO_EXTS.has(ext) || f.mimeType?.startsWith("video/");
+}
+
+// Tipo de uma "pasta de conteúdo" (ex: "01 dia dos namorados") com base no
+// nome da pasta ou, na falta de pistas, nos arquivos que ela contém.
+function guessTypeForGroup(name, mediaFiles) {
+  const byName = guessType(name);
+  if (byName !== "Outro") return byName;
+  if (mediaFiles.some(isVideoFile)) return "Reel";
+  if (mediaFiles.length > 1) return "Carrossel";
+  return "Post";
+}
+
 function parseMonthFromName(name) {
   const low = name.toLowerCase().replace(/[^a-záéíóúãõç0-9]/g,"");
   // Try numeric: "06", "6"
@@ -69,10 +92,13 @@ async function getAccessToken(email, privateKey) {
   return json.access_token;
 }
 
-async function listFolder(folderId, token, foldersOnly = false) {
-  const mimeFilter = foldersOnly
+// mode: "folders" → só subpastas | "files" → só arquivos | "all" → tudo
+async function listFolder(folderId, token, mode = "files") {
+  const mimeFilter = mode === "folders"
     ? " and mimeType='application/vnd.google-apps.folder'"
-    : " and mimeType!='application/vnd.google-apps.folder'";
+    : mode === "files"
+    ? " and mimeType!='application/vnd.google-apps.folder'"
+    : "";
   const query = encodeURIComponent(`'${folderId}' in parents and trashed=false${mimeFilter}`);
   const fields = encodeURIComponent("files(id,name,mimeType,modifiedTime)");
   const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=${fields}&pageSize=200&orderBy=name`;
@@ -99,23 +125,38 @@ export default async function handler(req, res) {
   try {
     const token = await getAccessToken(email, privateKey);
 
-    // Mode 3: list files in a month folder
+    // Mode 3: list content pieces inside a month folder.
+    // Cada peça pode ser um arquivo solto (vídeo/imagem) OU uma subpasta
+    // (ex: "01 dia dos namorados") contendo os arquivos daquele post.
     if (monthFolderId) {
-      const raw = await listFolder(monthFolderId, token, false);
-      const files = raw
-        .filter(f => {
-          const name = f.name.toLowerCase();
-          const ext  = name.slice(name.lastIndexOf("."));
-          return VIDEO_EXTS.has(ext) || IMAGE_EXTS.has(ext) ||
-                 f.mimeType?.startsWith("video/") || f.mimeType?.startsWith("image/");
-        })
+      const items = await listFolder(monthFolderId, token, "all");
+      const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+      const looseFiles = items
+        .filter(f => f.mimeType !== FOLDER_MIME && isMediaFile(f))
         .map(f => ({ id:f.id, name:f.name, type:guessType(f.name), platform:"Instagram" }));
+
+      const subfolders = items.filter(f => f.mimeType === FOLDER_MIME);
+      const folderGroups = await Promise.all(subfolders.map(async f => {
+        const inner = await listFolder(f.id, token, "files");
+        const media = inner.filter(isMediaFile);
+        if (media.length === 0) return null;
+        return {
+          id: f.id,
+          name: f.name.trim(),
+          type: guessTypeForGroup(f.name, media),
+          platform: "Instagram",
+          notes: `${media.length} arquivo(s)`,
+        };
+      }));
+
+      const files = [...folderGroups.filter(Boolean), ...looseFiles];
       return res.status(200).json({ files, total:files.length });
     }
 
     // Mode 2: list month subfolders inside a client folder
     if (clientFolderId) {
-      const folders = await listFolder(clientFolderId, token, true);
+      const folders = await listFolder(clientFolderId, token, "folders");
       const months = folders.map(f => ({
         id:   f.id,
         name: f.name,
@@ -126,7 +167,7 @@ export default async function handler(req, res) {
 
     // Mode 1: list client subfolders from root
     if (rootFolderId) {
-      const folders = await listFolder(rootFolderId, token, true);
+      const folders = await listFolder(rootFolderId, token, "folders");
       const clients = folders.map(f => ({ id:f.id, name:f.name }));
       return res.status(200).json({ clients });
     }
