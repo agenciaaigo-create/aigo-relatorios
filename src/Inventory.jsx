@@ -79,6 +79,13 @@ function saveConfig(c) {
   localStorage.setItem("aigo-inventory-cfg", JSON.stringify(c));
 }
 
+// Aceita tanto o ID puro quanto a URL completa da pasta do Drive
+function extractFolderId(input) {
+  const trimmed = (input || "").trim();
+  const match = trimmed.match(/[-\w]{20,}/);
+  return match ? match[0] : trimmed;
+}
+
 // Fuzzy match: "Doma Cosméticos" ↔ "doma cosmeticos"
 function normName(s) {
   return s.toLowerCase()
@@ -256,7 +263,7 @@ function ConfigModal({ config, onClose, onSave }) {
           Abra a pasta no Drive → copie o trecho após <code style={{color:"rgba(255,255,255,.4)"}}>/folders/</code> na URL.
         </p>
 
-        <button onClick={()=>onSave({ rootFolderId: rootId.trim() })}
+        <button onClick={()=>onSave({ rootFolderId: extractFolderId(rootId) })}
           disabled={!rootId.trim()}
           style={{
             width:"100%",background:"linear-gradient(135deg,#7C3AED,#4338CA)",

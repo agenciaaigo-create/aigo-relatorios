@@ -78,7 +78,10 @@ async function listFolder(folderId, token, foldersOnly = false) {
   const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=${fields}&pageSize=200&orderBy=name`;
   const resp = await fetch(url, { headers:{ Authorization:`Bearer ${token}` } });
   const json = await resp.json();
-  if (!resp.ok) throw new Error(json.error?.message || "Erro Drive API");
+  if (!resp.ok) {
+    const base = json.error?.message || "Erro Drive API";
+    throw new Error(`${base} [folderId usado: "${folderId || ""}"]`);
+  }
   return json.files || [];
 }
 
