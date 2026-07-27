@@ -19,7 +19,7 @@ const EMPTY = {
   visualizacoes:"", alcance:"", visitas:"", links:"",
   reels:"", likes:"", comentarios:"", salvamentos:"", compartilhamentos:"",
   topPost:"", topPostViews:"", topPostLikes:"",
-  stories:"", storiesViews:"", observacoes:""
+  stories:"", storiesViews:"", observacoes:"", posts:[]
 };
 
 const clr = i => PALETTE[i % PALETTE.length];
@@ -89,7 +89,7 @@ function buildPDF(clientName, clientIdx, d) {
     if (!mesNum && n >= 1 && n <= 12 && t.length <= 2) mesNum = n;
   }
 
-  // Pull Post/Carrossel "postado" from Inventory localStorage
+  // Pull Post/Carrossel "postado" from Inventory localStorage + manual posts
   let calDays = {};
   let postList = [];
   if (mesNum && ano) {
@@ -105,10 +105,20 @@ function buildPDF(clientName, clientIdx, d) {
         if (!day) return;
         if (!calDays[day]) calDays[day] = [];
         calDays[day].push(it.name||it.type);
-        postList.push({day, name: it.name||"(sem título)", type: it.type});
+        postList.push({day, name: it.name||"(sem título)", type: it.type, posted: true});
       });
-      postList.sort((a,b) => a.day - b.day);
     } catch(e){}
+    // Manual posts added directly in the report form
+    (d.posts||[]).forEach(p => {
+      const day = parseInt(p.day);
+      if (!day) return;
+      if (p.posted) {
+        if (!calDays[day]) calDays[day] = [];
+        calDays[day].push(p.title||p.type||"Post");
+      }
+      postList.push({day, name: p.title||"(sem título)", type: p.type||"Post", posted: !!p.posted});
+    });
+    postList.sort((a,b) => a.day - b.day);
   }
 
   // Build calendar grid HTML
@@ -122,7 +132,7 @@ function buildPDF(clientName, clientIdx, d) {
     for (let dd=1; dd<=daysInMonth; dd++) cells.push(dd);
     while (cells.length%7!==0) cells.push(null);
     const rows = [];
-    for (let i=0; i<cells.length; i+=7) rows.push(cells.slice(i,i+7));
+    for (let i=0,w=1; i<cells.length; i+=7,w++) rows.push({week:w, days:cells.slice(i,i+7)});
 
     calHtml = `
     <div class="stitle">📅 Calendário de Posts</div>
@@ -132,22 +142,30 @@ function buildPDF(clientName, clientIdx, d) {
           <span style="font-size:17px;font-weight:900;color:#fff;letter-spacing:.06em;text-transform:uppercase">${MES_NOME[mesNum]} ${ano}</span>
         </div>
         <table style="width:100%;border-collapse:collapse;background:#fff">
-          <thead><tr>${DIAS.map(dd=>`<th style="background:${ORANGE};color:#fff;font-size:8px;font-weight:700;letter-spacing:.07em;padding:7px 2px;text-align:center">${dd}</th>`).join("")}</tr></thead>
-          <tbody>${rows.map(row=>`<tr>${row.map(day=>{
-            const has = day && calDays[day];
-            return `<td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;height:34px;vertical-align:middle;background:${has?ORANGE:"#fff"}">
-              ${day?`<span style="font-size:11px;font-weight:${has?800:500};color:${has?"#fff":TEXT}">${day}</span>`:""}
-            </td>`;
-          }).join("")}</tr>`).join("")}</tbody>
+          <thead><tr>
+            <th style="background:${PURPLE}cc;color:#fff;font-size:7px;font-weight:700;letter-spacing:.06em;padding:7px 4px;text-align:center;width:28px">SEM</th>
+            ${DIAS.map(dd=>`<th style="background:${ORANGE};color:#fff;font-size:8px;font-weight:700;letter-spacing:.07em;padding:7px 2px;text-align:center">${dd}</th>`).join("")}
+          </tr></thead>
+          <tbody>${rows.map(row=>`<tr>
+            <td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;background:${PURPLE}10;vertical-align:middle">
+              <span style="font-size:8px;font-weight:700;color:${PURPLE}">${row.week}</span>
+            </td>
+            ${row.days.map(day=>{
+              const has = day && calDays[day];
+              return `<td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;height:34px;vertical-align:middle;background:${has?ORANGE:"#fff"}">
+                ${day?`<span style="font-size:11px;font-weight:${has?800:500};color:${has?"#fff":TEXT}">${day}</span>`:""}
+              </td>`;
+            }).join("")}
+          </tr>`).join("")}</tbody>
         </table>
       </div>
       <div style="width:195px;flex-shrink:0;padding-top:4px">
         ${postList.length>0 ? postList.map(p=>`
           <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:9px">
-            <div style="background:${ORANGE};color:#fff;font-size:8px;font-weight:700;padding:3px 8px;border-radius:100px;white-space:nowrap;flex-shrink:0">${String(p.day).padStart(2,"0")}/${String(mesNum).padStart(2,"0")}</div>
-            <div style="font-size:10px;color:${TEXT};line-height:1.4;font-weight:500">${p.name}</div>
+            <div style="background:${p.posted!==false?ORANGE:"#ccc"};color:#fff;font-size:8px;font-weight:700;padding:3px 8px;border-radius:100px;white-space:nowrap;flex-shrink:0">${String(p.day).padStart(2,"0")}/${String(mesNum).padStart(2,"0")}</div>
+            <div style="font-size:10px;color:${TEXT};line-height:1.4;font-weight:500">${p.name}${p.posted===false?' <span style="color:#999;font-weight:400">(não postado)</span>':""}</div>
           </div>`).join("")
-        : `<div style="font-size:11px;color:rgba(22,4,48,.38);font-style:italic;line-height:1.6">Nenhum Post ou Carrossel com status Postado encontrado no estoque deste mês.</div>`}
+        : `<div style="font-size:11px;color:rgba(22,4,48,.38);font-style:italic;line-height:1.6">Adicione posts no formulário ou sincronize com o Estoque.</div>`}
       </div>
     </div>`;
   }
@@ -569,6 +587,51 @@ export default function App() {
               style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:10,
                 padding:"10px 13px",color:"#fff",fontFamily:"'Montserrat',sans-serif",fontSize:13,outline:"none",
                 width:"100%",minHeight:80,resize:"vertical",lineHeight:1.65}}/>
+          </div>
+          <div style={{gridColumn:"span 3",paddingTop:8,borderTop:"1px solid rgba(255,255,255,.06)"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.28)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>📅 Calendário de Posts (manual)</div>
+            {(form.posts||[]).map((p,idx)=>(
+              <div key={idx} style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+                <input
+                  type="number" min="1" max="31" value={p.day} placeholder="Dia"
+                  onChange={e=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,day:e.target.value}:x))}
+                  style={{width:58,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,
+                    padding:"8px 10px",color:"#fff",fontFamily:"'Montserrat',sans-serif",fontSize:13,outline:"none",textAlign:"center"}}/>
+                <input
+                  value={p.title} placeholder="Título do post"
+                  onChange={e=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,title:e.target.value}:x))}
+                  style={{flex:1,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,
+                    padding:"8px 12px",color:"#fff",fontFamily:"'Montserrat',sans-serif",fontSize:13,outline:"none"}}/>
+                <select
+                  value={p.type||"Post"}
+                  onChange={e=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,type:e.target.value}:x))}
+                  style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,
+                    padding:"8px 10px",color:"#fff",fontFamily:"'Montserrat',sans-serif",fontSize:12,outline:"none",cursor:"pointer"}}>
+                  <option value="Post">Post</option>
+                  <option value="Carrossel">Carrossel</option>
+                </select>
+                <button
+                  onClick={()=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,posted:!x.posted}:x))}
+                  style={{background:p.posted?"#E07020":"rgba(255,255,255,.06)",border:"none",borderRadius:8,
+                    padding:"8px 14px",color:p.posted?"#fff":"rgba(255,255,255,.45)",
+                    fontFamily:"'Montserrat',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {p.posted?"✓ Postado":"Pendente"}
+                </button>
+                <button
+                  onClick={()=>setF("posts",(form.posts||[]).filter((_,i)=>i!==idx))}
+                  style={{background:"rgba(220,50,50,.15)",border:"1px solid rgba(220,50,50,.3)",borderRadius:8,
+                    padding:"8px 12px",color:"#f87171",fontFamily:"'Montserrat',sans-serif",fontSize:13,cursor:"pointer"}}>
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={()=>setF("posts",[...(form.posts||[]),{day:"",title:"",type:"Post",posted:true}])}
+              style={{background:"rgba(255,255,255,.04)",border:"1px dashed rgba(255,255,255,.15)",borderRadius:8,
+                padding:"8px 16px",color:"rgba(255,255,255,.45)",fontFamily:"'Montserrat',sans-serif",
+                fontSize:12,fontWeight:600,cursor:"pointer",marginTop:4}}>
+              + Adicionar post
+            </button>
           </div>
           <div style={{gridColumn:"span 3",display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
             {btn("Cancelar", ()=>setScreen("client"), "rgba(255,255,255,.05)", "rgba(255,255,255,.55)")}
