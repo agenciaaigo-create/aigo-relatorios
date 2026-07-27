@@ -98,7 +98,7 @@ function buildPDF(clientName, clientIdx, d) {
       const slugFn = s => s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
       const monthKey = `${ano}-${String(mesNum).padStart(2,"0")}`;
       const items = (inv[slugFn(clientName)]?.[monthKey]||[]).filter(
-        it => (it.type==="Post"||it.type==="Carrossel") && it.status==="postado" && it.scheduledDate
+        it => (it.type==="Post"||it.type==="Carrossel"||it.type==="Reels"||it.type==="Foto") && it.status==="postado" && it.scheduledDate
       );
       items.forEach(it => {
         const day = parseInt((it.scheduledDate||"").split("-")[2]);
@@ -132,49 +132,41 @@ function buildPDF(clientName, clientIdx, d) {
     for (let dd=1; dd<=daysInMonth; dd++) cells.push(dd);
     while (cells.length%7!==0) cells.push(null);
     const rows = [];
-    for (let i=0,w=1; i<cells.length; i+=7,w++) rows.push({week:w, days:cells.slice(i,i+7)});
+    for (let i=0; i<cells.length; i+=7) rows.push(cells.slice(i,i+7));
 
     calHtml = `
     <div class="stitle">📅 Calendário de Posts</div>
-    <div style="display:flex;gap:20px;align-items:flex-start">
-      <div style="flex:1;border:2px solid ${PURPLE};border-radius:12px;overflow:hidden">
-        <div style="background:${PURPLE};padding:11px 16px;text-align:center">
-          <span style="font-size:17px;font-weight:900;color:#fff;letter-spacing:.06em;text-transform:uppercase">${MES_NOME[mesNum]} ${ano}</span>
-        </div>
-        <table style="width:100%;border-collapse:collapse;background:#fff">
-          <thead><tr>
-            <th style="background:${PURPLE}cc;color:#fff;font-size:7px;font-weight:700;letter-spacing:.06em;padding:7px 4px;text-align:center;width:28px">SEM</th>
-            ${DIAS.map(dd=>`<th style="background:${ORANGE};color:#fff;font-size:8px;font-weight:700;letter-spacing:.07em;padding:7px 2px;text-align:center">${dd}</th>`).join("")}
-          </tr></thead>
-          <tbody>${rows.map(row=>`<tr>
-            <td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;background:${PURPLE}10;vertical-align:middle">
-              <span style="font-size:8px;font-weight:700;color:${PURPLE}">${row.week}</span>
-            </td>
-            ${row.days.map(day=>{
-              const has = day && calDays[day];
-              return `<td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;height:34px;vertical-align:middle;background:${has?ORANGE:"#fff"}">
-                ${day?`<span style="font-size:11px;font-weight:${has?800:500};color:${has?"#fff":TEXT}">${day}</span>`:""}
-              </td>`;
-            }).join("")}
-          </tr>`).join("")}</tbody>
-        </table>
+    <div style="border:2px solid ${PURPLE};border-radius:12px;overflow:hidden">
+      <div style="background:${PURPLE};padding:11px 16px;text-align:center">
+        <span style="font-size:17px;font-weight:900;color:#fff;letter-spacing:.06em;text-transform:uppercase">${MES_NOME[mesNum]} ${ano}</span>
       </div>
-      <div style="width:195px;flex-shrink:0;padding-top:4px">
-        ${postList.length>0 ? postList.map(p=>`
-          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:9px">
-            <div style="background:${p.posted!==false?ORANGE:"#ccc"};color:#fff;font-size:8px;font-weight:700;padding:3px 8px;border-radius:100px;white-space:nowrap;flex-shrink:0">${String(p.day).padStart(2,"0")}/${String(mesNum).padStart(2,"0")}</div>
-            <div style="font-size:10px;color:${TEXT};line-height:1.4;font-weight:500">${p.name}${p.posted===false?' <span style="color:#999;font-weight:400">(não postado)</span>':""}</div>
-          </div>`).join("")
-        : `<div style="font-size:11px;color:rgba(22,4,48,.38);font-style:italic;line-height:1.6">Adicione posts no formulário ou sincronize com o Estoque.</div>`}
-      </div>
-    </div>`;
+      <table style="width:100%;border-collapse:collapse;background:#fff">
+        <thead><tr>${DIAS.map(dd=>`<th style="background:${ORANGE};color:#fff;font-size:8px;font-weight:700;letter-spacing:.07em;padding:7px 2px;text-align:center">${dd}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(row=>`<tr>${row.map(day=>{
+          const has = day && calDays[day];
+          return `<td style="border:1px solid #e8dff5;padding:5px 2px;text-align:center;height:36px;vertical-align:middle;background:${has?ORANGE:"#fff"}">
+            ${day?`<span style="font-size:11px;font-weight:${has?800:500};color:${has?"#fff":TEXT}">${day}</span>`:""}
+          </td>`;
+        }).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>
+    ${postList.length>0?`
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
+      ${postList.map(p=>`
+        <div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid ${p.posted!==false?ORANGE+"55":"#ddd"};border-radius:100px;padding:5px 12px 5px 5px">
+          <div style="background:${p.posted!==false?ORANGE:"#ccc"};color:#fff;font-size:8px;font-weight:700;padding:3px 9px;border-radius:100px;white-space:nowrap">${String(p.day).padStart(2,"0")}/${String(mesNum).padStart(2,"0")}</div>
+          <span style="font-size:10px;font-weight:600;color:${p.posted!==false?TEXT:"#999"}">${p.name}</span>
+          ${p.posted===false?`<span style="font-size:8px;color:#bbb;font-weight:400">· pendente</span>`:""}
+        </div>`).join("")}
+    </div>`:""}`;
+
   }
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Montserrat',sans-serif;background-color:${CREAM};background-image:linear-gradient(rgba(74,27,212,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(74,27,212,.07) 1px,transparent 1px);background-size:22px 22px;color:${TEXT};width:794px}
+body{font-family:'Montserrat',sans-serif;background:${CREAM};color:${TEXT};width:794px}
 .page{width:794px;padding:0;position:relative}
 .header{background:${CREAM};padding:38px 52px 26px;border-bottom:3px solid ${PURPLE}}
 .logo-line{font-size:10px;font-weight:700;letter-spacing:.1em;color:rgba(22,4,48,.38);margin-bottom:22px;text-transform:uppercase}
@@ -607,8 +599,9 @@ export default function App() {
                   onChange={e=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,type:e.target.value}:x))}
                   style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,
                     padding:"8px 10px",color:"#fff",fontFamily:"'Montserrat',sans-serif",fontSize:12,outline:"none",cursor:"pointer"}}>
-                  <option value="Post">Post</option>
+                  <option value="Reels">Reels</option>
                   <option value="Carrossel">Carrossel</option>
+                  <option value="Foto">Foto</option>
                 </select>
                 <button
                   onClick={()=>setF("posts",(form.posts||[]).map((x,i)=>i===idx?{...x,posted:!x.posted}:x))}
