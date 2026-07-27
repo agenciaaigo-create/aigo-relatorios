@@ -593,7 +593,8 @@ export default function App() {
           Clique em <strong style={{color:cColor}}>Imprimir / Salvar PDF</strong> → escolha <strong style={{color:"#fff"}}>"Salvar como PDF"</strong>
         </div>
         <div style={{width:"100%",maxWidth:794,borderRadius:10,overflow:"hidden",boxShadow:"0 24px 80px rgba(0,0,0,.7)"}}>
-          <iframe srcDoc={pdfHtml} style={{width:"100%",height:1150,border:"none",display:"block"}} title="Preview"/>
+          <iframe srcDoc={pdfHtml} style={{width:"100%",height:1150,border:"none",display:"block"}} title="Preview"
+            onLoad={e=>{ try{ e.target.style.height = e.target.contentWindow.document.body.scrollHeight + "px"; }catch(_){} }}/>
         </div>
       </div>
     </div>
