@@ -72,12 +72,22 @@ function buildPDF(clientName, clientIdx, d) {
   const bar = v => `<div style="height:5px;background:#e5dff5;border-radius:4px;overflow:hidden;margin-top:5px"><div style="height:100%;width:${Math.min(100,(+v||0)/engMax*100)}%;background:${ORANGE};border-radius:4px"></div></div>`;
   const saldo = (+d.seguidoresNovos||0) - (+d.unfollow||0);
 
-  // Parse "Maio 2026" → { mesNum: 5, ano: 2026 }
-  const MESES = {"janeiro":1,"fevereiro":2,"março":3,"marco":3,"abril":4,"maio":5,"junho":6,"julho":7,"agosto":8,"setembro":9,"outubro":10,"novembro":11,"dezembro":12};
+  // Parse mesAno em qualquer formato: "Maio 2026", "Jun-Jul 2024", "06/2026", "2026-06"
+  const MESES = {
+    "janeiro":1,"fevereiro":2,"março":3,"marco":3,"abril":4,"maio":5,
+    "junho":6,"julho":7,"agosto":8,"setembro":9,"outubro":10,"novembro":11,"dezembro":12,
+    "jan":1,"fev":2,"mar":3,"abr":4,"mai":5,"jun":6,
+    "jul":7,"ago":8,"set":9,"out":10,"nov":11,"dez":12,
+  };
   const MES_NOME = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-  const pts = (d.mesAno||"").toLowerCase().trim().split(/\s+/);
-  const mesNum = MESES[pts[0]] || 0;
-  const ano = parseInt(pts[1]) || 0;
+  let mesNum = 0, ano = 0;
+  const tokens = (d.mesAno||"").toLowerCase().split(/[\s\-\/\.]+/);
+  for (const t of tokens) {
+    if (!mesNum && MESES[t]) { mesNum = MESES[t]; continue; }
+    const n = parseInt(t);
+    if (!ano && n >= 1900 && n <= 2100) { ano = n; continue; }
+    if (!mesNum && n >= 1 && n <= 12 && t.length <= 2) mesNum = n;
+  }
 
   // Pull Post/Carrossel "postado" from Inventory localStorage
   let calDays = {};
