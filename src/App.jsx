@@ -172,7 +172,7 @@ body{font-family:'Montserrat',sans-serif;background:${CREAM};color:${TEXT};width
 .logo-line{font-size:10px;font-weight:700;letter-spacing:.1em;color:rgba(22,4,48,.38);margin-bottom:22px;text-transform:uppercase}
 .logo-line span{color:${ORANGE}}
 .hrow{display:flex;align-items:center;gap:18px}
-.avatar{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,${PURPLE},${ORANGE});display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:#fff;box-shadow:0 6px 20px ${PURPLE}44}
+.avatar{width:56px;height:56px;border-radius:14px;background:${PURPLE};display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:#fff;box-shadow:0 4px 16px ${PURPLE}44}
 .cname{font-size:27px;font-weight:900;color:${PURPLE};letter-spacing:-.02em;text-transform:uppercase}
 .csub{font-size:10px;font-weight:600;color:rgba(22,4,48,.4);margin-top:4px;letter-spacing:.06em;text-transform:uppercase}
 .badge{margin-left:auto;background:${ORANGE};border-radius:100px;padding:8px 20px;font-size:11px;font-weight:800;color:#fff;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
