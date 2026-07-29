@@ -1,9 +1,16 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import Inventory from "./Inventory";
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+function Root() {
+  const path = window.location.pathname;
+  if (path.startsWith("/estoque")) return <Inventory />;
+  return <App />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <Root />
   </React.StrictMode>
-)
+);
