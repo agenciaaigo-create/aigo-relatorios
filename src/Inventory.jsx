@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 // ── Constants ──────────────────────────────────────────────────────────────
 const CLIENTS_LIST = [
   "Aline","Americana","AP Engenharia","Bioessência","Coperfarma",
-  "Doma Cosméticos","Fran Cendron","Ingalimp","Isadora","Juninho Vende",
+  "Doma Cosméticos","Dra. Gisele","Fran Cendron","Ingalimp",
   "Leda","Manu Arquitetura","Marcela - Lash e Brown","Mari Garcia","Murilo Bianco",
   "Nathalia","Petshop","Suellem","Vikce","Wood",
 ];
