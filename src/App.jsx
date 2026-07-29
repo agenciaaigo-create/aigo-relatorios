@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 
 const CLIENTS = [
   "Aline","Americana","AP Engenharia","Bioessência","Coperfarma",
-  "Doma Cosméticos","Fran Cendron","Ingalimp","Isadora","Juninho Vende",
+  "Doma Cosméticos","Dra. Gisele","Fran Cendron","Ingalimp",
   "Leda","Manu Arquitetura","Marcela - Lash e Brown","Mari Garcia","Murilo Bianco",
   "Nathalia","Petshop","Suellem","Vikce","Wood",
 ];
@@ -17,7 +17,7 @@ const PALETTE = [
 const EMPTY = {
   mesAno:"", seguidores:"", seguidoresNovos:"", unfollow:"",
   visualizacoes:"", alcance:"", visitas:"", links:"",
-  reels:"", likes:"", comentarios:"", salvamentos:"", compartilhamentos:"",
+  reels:"", carrosseis:"", likes:"", comentarios:"", salvamentos:"", compartilhamentos:"",
   topPost:"", topPostViews:"", topPostLikes:"",
   stories:"", storiesViews:"", observacoes:"", posts:[]
 };
@@ -228,7 +228,7 @@ body{font-family:'Montserrat',sans-serif;background:${CREAM};color:${TEXT};width
     <div class="card"><div class="cl">Contas Alcançadas</div><div class="cv">${fmt(d.alcance)}</div></div>
     <div class="card"><div class="cl">Visitas ao Perfil</div><div class="cv">${fmt(d.visitas)}</div></div>
   </div>
-  <div class="stitle">❤ Engajamento · ${d.reels||"—"} Reels publicados</div>
+  <div class="stitle">❤ Engajamento · ${d.reels||"—"} Reels · ${d.carrosseis||"—"} Carrosseis publicados</div>
   <div class="g2">
     <div class="card">
       ${[["♡ Likes",d.likes],["💬 Comentários",d.comentarios],["🔖 Salvamentos",d.salvamentos],["↗ Compartilhamentos",d.compartilhamentos]].map(([l,v])=>`<div class="erow"><span class="elabel">${l}</span><span class="eval">${fmt(v)}</span></div>${bar(v)}`).join("")}
@@ -324,8 +324,8 @@ export default function App() {
             role:"user",
             content:[
               ...imgs,
-              {type:"text",text:`Analise estes prints de insights do Instagram e retorne APENAS um JSON válido sem markdown com estes campos (string vazia se não encontrar):
-{"mesAno":"","seguidores":"","seguidoresNovos":"","unfollow":"","visualizacoes":"","alcance":"","visitas":"","links":"","reels":"","likes":"","comentarios":"","salvamentos":"","compartilhamentos":"","topPost":"","topPostViews":"","topPostLikes":"","stories":"","storiesViews":""}`}
+              {type:"text",text:`Analise estes prints de insights do Instagram e retorne APENAS um JSON válido sem markdown com estes campos (string vazia se não encontrar). "reels" deve ser a QUANTIDADE (número inteiro) de Reels publicados no mês, não porcentagem. "carrosseis" deve ser a QUANTIDADE de posts do tipo carrossel publicados no mês:
+{"mesAno":"","seguidores":"","seguidoresNovos":"","unfollow":"","visualizacoes":"","alcance":"","visitas":"","links":"","reels":"","carrosseis":"","likes":"","comentarios":"","salvamentos":"","compartilhamentos":"","topPost":"","topPostViews":"","topPostLikes":"","stories":"","storiesViews":""}`}
             ]
           }]
         })
@@ -558,6 +558,7 @@ export default function App() {
           <Field label="Visitas ao Perfil" value={form.visitas} onChange={v=>setF("visitas",v)} placeholder="8.218"/>
           <div style={{gridColumn:"span 3",paddingTop:8,borderTop:"1px solid rgba(255,255,255,.06)",fontSize:10,fontWeight:700,color:"rgba(255,255,255,.28)",textTransform:"uppercase",letterSpacing:".1em"}}>❤ Engajamento</div>
           <Field label="Reels Publicados" value={form.reels} onChange={v=>setF("reels",v)} placeholder="5"/>
+          <Field label="Carrosseis Publicados" value={form.carrosseis} onChange={v=>setF("carrosseis",v)} placeholder="3"/>
           <Field label="Likes" value={form.likes} onChange={v=>setF("likes",v)} placeholder="6.896"/>
           <Field label="Comentários" value={form.comentarios} onChange={v=>setF("comentarios",v)} placeholder="178"/>
           <Field label="Salvamentos" value={form.salvamentos} onChange={v=>setF("salvamentos",v)} placeholder="2.797"/>
