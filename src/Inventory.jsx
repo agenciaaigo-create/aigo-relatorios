@@ -762,6 +762,17 @@ function Dashboard({ data, month, onMonthChange, onOpenClient, months, config, o
           onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.04)";e.currentTarget.style.color="rgba(255,255,255,.45)";}}>
             📊 Relatórios
           </a>
+          <a href="/financeiro" style={{
+            display:"flex",alignItems:"center",gap:6,
+            background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",
+            borderRadius:10,padding:"6px 14px",color:"rgba(255,255,255,.45)",
+            fontFamily:"'Montserrat',sans-serif",fontSize:12,fontWeight:600,
+            textDecoration:"none",cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap",
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,.08)";e.currentTarget.style.color="rgba(255,255,255,.7)";}}
+          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.04)";e.currentTarget.style.color="rgba(255,255,255,.45)";}}>
+            💰 Financeiro
+          </a>
         </div>
       </div>
 
