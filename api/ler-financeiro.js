@@ -12,29 +12,37 @@ async function readBody(req) {
   return JSON.parse(raw);
 }
 
-function buildPrompt({ hoje, clientes, categorias }) {
-  return `Você é um assistente financeiro de uma agência de marketing (ai.go). Analise os prints enviados (comprovantes de PIX, transferências, boletos, extratos bancários, faturas de cartão, notas fiscais, recibos) e extraia TODOS os lançamentos financeiros que aparecerem.
+function buildPrompt({ hoje, clientes, opcoes = {} }) {
+  const list = k => (opcoes[k] || []).join(", ");
+  return `Você é o assistente financeiro da ai.go (agência de social media e fotografia). Analise os prints enviados (comprovantes de PIX, transferências, boletos, extratos bancários, faturas de cartão, notas, recibos) e extraia TODOS os lançamentos financeiros.
 
 Hoje é ${hoje}. Se o print não mostrar o ano, use o ano mais provável considerando a data de hoje.
 
-Para cada lançamento, retorne um objeto com:
-- "data": data no formato AAAA-MM-DD (string vazia se não houver)
-- "descricao": descrição curta e clara (ex.: "PIX recebido - Coperfarma", "Assinatura Canva", "Meta Ads")
-- "tipo": "entrada" se o dinheiro entrou na conta da agência, "saida" se saiu
-- "valor": número positivo com ponto decimal, sem símbolo (ex.: 1250.90)
-- "categoria": escolha a mais adequada desta lista: ${categorias.join(", ")}
-- "cliente": se o lançamento for de/para um destes clientes, use exatamente o nome da lista; senão string vazia. Clientes: ${clientes.join(", ")}
-- "forma": uma destas: PIX, Transferência, Boleto, Cartão de crédito, Cartão de débito, Dinheiro, Outro
-- "status": "pago" se já foi efetivado, "pendente" se é um boleto/fatura a vencer ou agendamento
-- "obs": observação curta útil (ex.: nome do pagador/recebedor, nº do documento) ou string vazia
+Classifique cada lançamento em uma "secao":
+- "receita": dinheiro que ENTROU (pagamento de cliente, sinal de ensaio, mensalidade etc.)
+- "fixo": gasto fixo mensal (salários, contador, FGTS, INSS, DAS, internet, água, energia, aluguel, assinaturas como Adobe, Canva, Capcut, iCloud, Google Drive, site, pró-labore)
+- "extra": compras parceladas, investimentos, viagens, combustível, pedágio, alimentação, mercado, despesas avulsas
+- "variavel": outros gastos que variam no mês (anúncios, empréstimo, freelas, consórcio, Facebook Ads etc.)
+
+Para cada lançamento retorne:
+- "secao": receita | fixo | variavel | extra
+- "data": AAAA-MM-DD (string vazia se não houver)
+- "descricao": curta. Para receitas use o nome do cliente/pagador (se for um destes clientes use o nome exato: ${clientes.join(", ")}). Para gastos use o nome do gasto (ex.: "Canva", "Contador", "Pedágio Maringá")
+- "valor": número positivo com ponto decimal (ex.: 1250.90)
+- "forma": conta/forma usada, uma destas: ${list("forma")}
+- "status": "pago" se já foi efetivado, "nao_pago" se é boleto/fatura a vencer
+- "info": observação curta (ex.: "parcelado", "3/10" para parcela, "hora extra") ou string vazia
+- "categoria": só para "extra", uma destas: ${list("categoria")}; senão string vazia
+- "servico": só para "receita", uma destas: ${list("servico")}; senão string vazia
+- "tipo": só para "receita", uma destas: ${list("tipo")}; senão string vazia
 
 Regras:
-- Em extratos com várias linhas, crie um lançamento por linha. Ignore linhas de saldo.
-- Não invente valores. Se não conseguir ler o valor, não inclua o lançamento.
-- Não duplique o mesmo lançamento se ele aparecer em mais de um print.
+- Em extratos com várias linhas, um lançamento por linha. Ignore linhas de saldo.
+- Não invente valores. Se não conseguir ler o valor, não inclua.
+- Não duplique o mesmo lançamento que aparecer em mais de um print.
 
-Responda APENAS com um JSON válido, sem markdown, no formato:
-{"lancamentos":[{"data":"","descricao":"","tipo":"","valor":0,"categoria":"","cliente":"","forma":"","status":"","obs":""}]}`;
+Responda APENAS com JSON válido, sem markdown:
+{"lancamentos":[{"secao":"","data":"","descricao":"","valor":0,"forma":"","status":"","info":"","categoria":"","servico":"","tipo":""}]}`;
 }
 
 export default async function handler(req, res) {
@@ -60,7 +68,7 @@ export default async function handler(req, res) {
     { type: "text", text: buildPrompt({
       hoje: body.hoje || new Date().toISOString().slice(0, 10),
       clientes: body.clientes || [],
-      categorias: body.categorias || [],
+      opcoes: body.opcoes || {},
     }) },
   ];
 
