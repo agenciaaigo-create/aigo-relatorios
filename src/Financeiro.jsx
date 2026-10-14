@@ -591,7 +591,7 @@ function Geral({ rows, ano, onPick }) {
 }
 
 // ── Página ─────────────────────────────────────────────────────────────────
-export default function Financeiro() {
+function FinanceiroApp({ senha, sair }) {
   const now = new Date();
   const [rows, setRows] = useState(load);
   const [ano, setAno] = useState(now.getFullYear());
@@ -657,10 +657,11 @@ export default function Financeiro() {
     try {
       const images = await Promise.all(files.map(compressImage));
       const resp = await fetch("/api/ler-financeiro", {
-        method:"POST", headers:{ "Content-Type":"application/json" },
+        method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
         body: JSON.stringify({ images, hoje: hojeISO(), clientes: CLIENTS, opcoes: OPTS }),
       });
       if (resp.status === 413) throw new Error("Imagens muito grandes. Tente com menos prints por vez.");
+      if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
       const found = (out.lancamentos || []).map(t => fromAI(t, mes || mesKey(ano, now.getMonth())));
@@ -718,6 +719,8 @@ export default function Financeiro() {
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
           </div>
+          <button onClick={sair} title="Sair (pede a senha de novo)" style={{ marginLeft:"auto", border:`1px solid ${P.lilas}`, background:P.papel,
+            color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
         {/* abas como no Google Planilhas */}
         <div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
@@ -858,6 +861,54 @@ export default function Financeiro() {
             onChange={e => { e.target.files[0] && importBackup(e.target.files[0]); e.target.value = ""; }}/>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Senha de acesso ────────────────────────────────────────────────────────
+const SENHA_KEY = "aigo-fin-senha";
+
+async function conferirSenha(senha) {
+  const r = await fetch("/api/fin-auth", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ senha }) });
+  const out = await r.json().catch(() => ({}));
+  return { ok: r.ok, erro: out.error || `Erro ${r.status}` };
+}
+
+export default function Financeiro() {
+  const [senha, setSenha] = useState(() => { try { return localStorage.getItem(SENHA_KEY) || ""; } catch { return ""; } });
+  const [estado, setEstado] = useState(senha ? "conferindo" : "login");   // login | conferindo | ok
+  const [digitada, setDigitada] = useState("");
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    if (estado !== "conferindo") return;
+    conferirSenha(senha).then(({ ok, erro }) => {
+      if (ok) { try { localStorage.setItem(SENHA_KEY, senha); } catch {} setEstado("ok"); }
+      else { setErro(erro); setEstado("login"); try { localStorage.removeItem(SENHA_KEY); } catch {} }
+    }).catch(() => { setErro("Sem conexão. Tente de novo."); setEstado("login"); });
+  }, [estado, senha]);
+
+  const sair = () => { try { localStorage.removeItem(SENHA_KEY); } catch {} setSenha(""); setDigitada(""); setErro(""); setEstado("login"); };
+
+  if (estado === "ok") return <FinanceiroApp senha={senha} sair={sair}/>;
+
+  return (
+    <div style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <style>{CSS}</style>
+      <form onSubmit={e => { e.preventDefault(); if (digitada) { setErro(""); setSenha(digitada); setEstado("conferindo"); } }}
+        style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:16, padding:"28px 24px", width:"100%", maxWidth:340,
+          boxShadow:"0 10px 30px rgba(59,28,126,.10)", textAlign:"center" }}>
+        <div style={{ fontWeight:900, fontSize:24, color:P.roxo }}>ai<span style={{ color:P.laranja }}>.go</span></div>
+        <div style={{ fontWeight:800, fontSize:15, color:P.tinta, marginTop:6 }}>Financeiro Empresa</div>
+        <div style={{ fontSize:12, color:P.suave, marginTop:4, marginBottom:20 }}>Acesso restrito</div>
+        <input type="password" autoFocus value={digitada} onChange={e => setDigitada(e.target.value)} placeholder="Senha"
+          style={{ width:"100%", border:`1px solid ${P.lilas}`, borderRadius:10, padding:"11px 14px", fontFamily:FONT, fontSize:14, outline:"none", color:P.tinta }}/>
+        {erro && <div style={{ fontSize:12, color:P.vermelho, marginTop:10 }}>{erro}</div>}
+        <button type="submit" disabled={estado === "conferindo"} style={{ width:"100%", marginTop:14, background:P.roxo, color:"#fff", border:"none",
+          borderRadius:10, padding:"11px", fontFamily:FONT, fontSize:14, fontWeight:800, cursor:"pointer", opacity: estado === "conferindo" ? .6 : 1 }}>
+          {estado === "conferindo" ? "Entrando..." : "Entrar"}
+        </button>
+      </form>
     </div>
   );
 }

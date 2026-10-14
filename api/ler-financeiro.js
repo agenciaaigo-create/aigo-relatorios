@@ -1,3 +1,5 @@
+import { bloquear } from "./fin-auth.js";
+
 // Lê prints de comprovantes / extratos / PIX / notas e devolve uma lista de lançamentos
 // Required env var: ANTHROPIC_KEY
 
@@ -49,6 +51,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  if (bloquear(req, res, req.headers["x-fin-senha"])) return;
   if (!process.env.ANTHROPIC_KEY) {
     return res.status(500).json({ error: "ANTHROPIC_KEY nao configurada" });
   }
