@@ -158,6 +158,9 @@ function load() {
 const sortRows = rows => [...rows].sort((a, b) =>
   a.mes.localeCompare(b.mes) || (a.dia === "" ? 99 : a.dia) - (b.dia === "" ? 99 : b.dia));
 
+// Identifica lançamentos iguais (para não duplicar ao importar o mesmo print de novo)
+const chave = r => [r.mes, r.secao, r.dia, r.descricao.trim().toLowerCase(), r.valor.toFixed(2)].join("|");
+
 const chipOf = (field, val) => CHIPS[field]?.find(o => o[0] === val);
 const cellText = (r, c) => {
   const col = COL[c];
@@ -608,6 +611,13 @@ function FinanceiroApp({ senha, sair }) {
 
   useEffect(() => { document.title = "ai.go — Financeiro"; }, []);
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); } catch {} }, [rows]);
+  // Site aberto em outra aba: recebe o que ela salvou, em vez de sobrescrever
+  useEffect(() => {
+    const onStorage = e => { if (e.key === STORAGE_KEY && e.newValue) { try { setRows(JSON.parse(e.newValue).map(normalize)); } catch {} } };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  const [ultimaImportacao, setUltimaImportacao] = useState([]);
 
   const mes = aba === "geral" ? null : mesKey(ano, aba);
   const doMes = useMemo(() => rows.filter(r => r.mes === mes), [rows, mes]);
@@ -667,10 +677,11 @@ function FinanceiroApp({ senha, sair }) {
       if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
-      const found = (out.lancamentos || []).map(t => fromAI(t, mes || mesKey(ano, now.getMonth())));
+      const found = (out.lancamentos || []).map(t => fromAI(t, mes || mesKey(ano, now.getMonth())))
+        .filter(r => r.descricao.trim() || r.valor > 0);
       if (!found.length) setMsg("⚠️ Não encontrei lançamentos nesses prints. Adicione a linha manualmente.");
       else {
-        setReview(r => [...r, ...found]);
+        setReview(r => { const ja = new Set(r.map(chave)); return [...r, ...found.filter(x => !ja.has(chave(x)))]; });
         setMsg(`✅ ${found.length} lançamento${found.length > 1 ? "s" : ""} encontrado${found.length > 1 ? "s" : ""}. Confira e clique em "Lançar na planilha".`);
       }
     } catch (e) { setMsg("⚠️ Erro: " + (e.message || String(e))); }
@@ -679,11 +690,26 @@ function FinanceiroApp({ senha, sair }) {
   }
 
   function confirmar() {
-    setRows(rs => sortRows([...rs, ...review]));
-    const first = review[0];
+    const existentes = new Set(rows.map(chave));
+    const novos = review.filter(r => !existentes.has(chave(r)));
+    const repetidos = review.length - novos.length;
+    setRows(rs => sortRows([...rs, ...novos]));
+    setUltimaImportacao(novos.map(r => r.id));
+    const first = novos[0];
     if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); }
-    setMsg(`✅ ${review.length} lançamento${review.length > 1 ? "s" : ""} adicionado${review.length > 1 ? "s" : ""}.`);
+    const porMes = {};
+    novos.forEach(r => { const [y, m] = r.mes.split("-"); const k = `${MESES[+m - 1]} ${y}`; porMes[k] = (porMes[k] || 0) + 1; });
+    const onde = Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
+    setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} adicionado${novos.length !== 1 ? "s" : ""}${onde ? ` (${onde})` : ""}.`
+      + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : ""));
     setReview([]);
+  }
+
+  function desfazerImportacao() {
+    const ids = new Set(ultimaImportacao);
+    setRows(rs => rs.filter(r => !ids.has(r.id)));
+    setMsg(`↩ Importação desfeita: ${ids.size} lançamento${ids.size !== 1 ? "s" : ""} removido${ids.size !== 1 ? "s" : ""}.`);
+    setUltimaImportacao([]);
   }
 
   function importBackup(file) {
@@ -758,6 +784,10 @@ function FinanceiroApp({ senha, sair }) {
             background: msg.startsWith("⚠️") ? "#FFF0F0" : "#EEF8F0", color: msg.startsWith("⚠️") ? P.vermelho : P.verde,
             border:`1px solid ${msg.startsWith("⚠️") ? "#F5C6C6" : "#C8E6CF"}`, display:"flex", gap:10, alignItems:"flex-start" }}>
             <span style={{ flex:1 }}>{msg}</span>
+            {ultimaImportacao.length > 0 && msg.startsWith("✅") && (
+              <button onClick={desfazerImportacao} style={{ border:`1px solid ${P.verde}`, background:"#fff", color:P.verde, borderRadius:8,
+                padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↩ Desfazer</button>
+            )}
             <button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:"inherit" }}>✕</button>
           </div>
         )}
@@ -767,7 +797,13 @@ function FinanceiroApp({ senha, sair }) {
           <div style={{ background:P.papel, border:`2px solid ${P.roxo2}`, borderRadius:12, marginBottom:20, overflow:"hidden" }}>
             <div style={{ background:P.roxo2, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
               <b style={{ fontSize:12, letterSpacing:".06em", textTransform:"uppercase" }}>🔎 Confira o que a IA leu ({review.length})</b>
-              <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+              <div style={{ marginLeft:"auto", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                <select value="" onChange={e => { const v = e.target.value; if (v) setReview(rv => rv.map(r => normalize({ ...r, mes:v }))); }}
+                  style={{ background:"rgba(255,255,255,.14)", border:"1px solid rgba(255,255,255,.22)", color:"#fff", borderRadius:8,
+                    padding:"4px 8px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                  <option value="" style={{ color:P.tinta }}>📅 Mudar mês de todos…</option>
+                  {MESES.map((m, i) => <option key={m} value={mesKey(ano, i)} style={{ color:P.tinta }}>{m} {ano}</option>)}
+                </select>
                 <HeadBtn onClick={() => setReview([])}>Descartar</HeadBtn>
                 <button onClick={confirmar} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:8, padding:"5px 12px",
                   fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Lançar na planilha</button>

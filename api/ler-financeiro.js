@@ -31,6 +31,10 @@ PRINT DE PLANILHA/TABELA (linhas com colunas como Dia, Descrição/Gastos Fixos,
 - A seção vem do título acima da tabela: "GASTOS FIXOS" = fixo, "GASTOS VARIÁVEIS" = variavel, "PARCELAS E EXTRAS" = extra, "RECEITAS" = receita.
 - Linha sem valor preenchido: inclua mesmo assim com "valor": 0.
 - Ignore quadros de totais/resumo (ex.: "PAGOS", "NÃO PAGO") e cabeçalhos.
+- Ignore linhas vazias (sem descrição e sem valor), mesmo que tenham só o dia ou só os menus de seleção.
+- Um mesmo print pode ter VÁRIAS tabelas (uma embaixo da outra ou lado a lado). Antes de ler cada linha, veja em qual tabela ela está pelo título roxo acima dela e use a seção daquela tabela. A tabela da direita com colunas "80% empresa" / "20% empresa" é RECEITAS.
+- Um mesmo nome pode aparecer em duas tabelas (ex.: "Kamilly" em Gastos Fixos e em Gastos Variáveis): são lançamentos diferentes, mantenha cada um na sua seção.
+- Em RECEITAS sem descrição preenchida, use "descricao": "" (não invente nome).
 
 Classifique cada lançamento em uma "secao":
 - "receita": dinheiro que ENTROU (pagamento de cliente, sinal de ensaio, mensalidade etc.)
@@ -98,7 +102,7 @@ export default async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-haiku-5-5",
         max_tokens: 16000,
         messages: [{ role: "user", content }],
       }),
@@ -114,6 +118,9 @@ export default async function handler(req, res) {
 
   try {
     const json = JSON.parse(text);
+    if (json.stop_reason === "refusal") {
+      return res.status(502).json({ error: "A IA não conseguiu ler esses prints. Tente de novo ou com outro print." });
+    }
     const raw = (json.content || []).map(b => b.text || "").join("");
     const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
     const clean = (match ? match[1] : raw).trim();
