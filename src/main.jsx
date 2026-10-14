@@ -4,10 +4,13 @@ import App from "./App";
 import Inventory from "./Inventory";
 import Financeiro from "./Financeiro";
 
+// VITE_APP=financeiro → site publicado só com o financeiro (link separado)
+const SOMENTE_FINANCEIRO = import.meta.env.VITE_APP === "financeiro";
+
 function Root() {
   const path = window.location.pathname;
+  if (SOMENTE_FINANCEIRO || path.startsWith("/financeiro")) return <Financeiro />;
   if (path.startsWith("/estoque")) return <Inventory />;
-  if (path.startsWith("/financeiro")) return <Financeiro />;
   return <App />;
 }
 

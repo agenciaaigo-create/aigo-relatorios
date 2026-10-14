@@ -362,6 +362,135 @@ function Kpi({ label, value, sub, color }) {
   );
 }
 
+// ── "Para onde foi o dinheiro" (rosca + ranking) ───────────────────────────
+const COR_GRUPO = {
+  "Gastos fixos":"#4C27A0", "Gastos variáveis":"#E07020", "Maringá":"#1F5FBF", "Investimento":"#A0712B",
+  "Mercado":"#0E8C9A", "Extra":"#D4A20B", "Alimentação":"#C2185B", "Transporte":"#2E9E6B", "Outro":"#8E8A9E",
+  "Pix":"#2E9E6B", "Sicoob":"#0E6B3B", "Nubank":"#8A3FD1", "Mercado Pago":"#1F5FBF", "Cartão":"#607D8B", "Dinheiro":"#D4A20B",
+};
+const COR_ORDEM = ["#4C27A0","#E07020","#1F5FBF","#2E9E6B","#C2185B","#A0712B","#0E8C9A","#D4A20B"];
+const COR_OUTROS = "#B9B4C7";
+const MODOS = {
+  categoria: { label:"Categoria", key:r => r.secao === "fixo" ? "Gastos fixos" : r.secao === "variavel" ? "Gastos variáveis" : (r.categoria || "Extra") },
+  item:      { label:"Item",      key:r => r.descricao.trim() || "(sem descrição)" },
+  forma:     { label:"Forma de pag.", key:r => r.forma },
+};
+
+function ParaOndeFoi({ rows, titulo }) {
+  const [modo, setModo] = useState("categoria");
+  const [hover, setHover] = useState(null);
+  const [aberto, setAberto] = useState(null);
+
+  const total = rows.reduce((s, r) => s + r.valor, 0);
+  const grupos = useMemo(() => {
+    const map = {};
+    rows.forEach(r => {
+      const nome = MODOS[modo].key(r);
+      const k = nome.toLowerCase();
+      map[k] = map[k] || { nome, valor:0, itens:[] };
+      map[k].valor += r.valor;
+      map[k].itens.push(r);
+    });
+    let list = Object.values(map).filter(g => g.valor > 0).sort((a, b) => b.valor - a.valor);
+    if (list.length > 8) {
+      const resto = list.slice(7);
+      list = [...list.slice(0, 7), { nome:`Outros (${resto.length})`, valor:resto.reduce((s, g) => s + g.valor, 0),
+        itens:resto.flatMap(g => g.itens), outros:true }];
+    }
+    return list.map((g, i) => ({ ...g, cor: g.outros ? COR_OUTROS : (COR_GRUPO[g.nome] || COR_ORDEM[i % COR_ORDEM.length]) }));
+  }, [rows, modo]);
+
+  // rosca
+  const R = 74, SW = 28, C = 2 * Math.PI * R, GAP = grupos.length > 1 ? 2 : 0;
+  let acc = 0;
+  const arcos = grupos.map(g => {
+    const len = total ? g.valor / total * C : 0;
+    const a = { ...g, dash:Math.max(0, len - GAP), off:-acc };
+    acc += len;
+    return a;
+  });
+  const foco = grupos.find(g => g.nome === (hover || aberto));
+
+  const pill = on => ({ border:`1px solid ${on ? P.roxo : P.lilas}`, background:on ? P.roxo : P.papel, color:on ? "#fff" : P.roxo,
+    borderRadius:100, padding:"4px 11px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" });
+
+  return (
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
+      <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>💸 Para onde foi o dinheiro · {titulo}</div>
+      </div>
+      <div style={{ padding:"14px 16px 6px", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+        <span style={{ fontSize:11, color:P.suave, fontWeight:600, marginRight:4 }}>Agrupar por</span>
+        {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={pill(modo === k)}>{m.label}</button>)}
+      </div>
+      {!total ? <div style={{ padding:"30px 16px", textAlign:"center", fontSize:12, color:P.suave }}>Nenhum gasto lançado neste período.</div> : (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:24, padding:"10px 16px 18px", alignItems:"flex-start" }}>
+          <svg viewBox="0 0 200 200" width="200" height="200" style={{ flex:"0 0 auto", margin:"0 auto" }}>
+            <g transform="rotate(-90 100 100)">
+              <circle cx="100" cy="100" r={R} fill="none" stroke={P.lilasClaro} strokeWidth={SW}/>
+              {arcos.map(a => (
+                <circle key={a.nome} cx="100" cy="100" r={R} fill="none" stroke={a.cor}
+                  strokeWidth={foco && foco.nome === a.nome ? SW + 6 : SW}
+                  strokeDasharray={`${a.dash} ${C}`} strokeDashoffset={a.off}
+                  opacity={foco && foco.nome !== a.nome ? .35 : 1}
+                  style={{ cursor:"pointer", transition:"opacity .15s, stroke-width .15s" }}
+                  onMouseEnter={() => setHover(a.nome)} onMouseLeave={() => setHover(null)}
+                  onClick={() => setAberto(x => x === a.nome ? null : a.nome)}/>
+              ))}
+            </g>
+            <text x="100" y="88" textAnchor="middle" fontSize="10" fontWeight="700" fill={P.suave} fontFamily="Montserrat, sans-serif">
+              {(foco ? foco.nome : "Total de gastos").slice(0, 22)}
+            </text>
+            <text x="100" y="108" textAnchor="middle" fontSize="15" fontWeight="900" fill={P.tinta} fontFamily="Montserrat, sans-serif">
+              {brl(foco ? foco.valor : total)}
+            </text>
+            <text x="100" y="124" textAnchor="middle" fontSize="10" fontWeight="600" fill={P.suave} fontFamily="Montserrat, sans-serif">
+              {foco ? `${(foco.valor / total * 100).toFixed(1).replace(".", ",")}% dos gastos` : `${rows.length} lançamentos`}
+            </text>
+          </svg>
+
+          <div style={{ flex:"1 1 300px", minWidth:0, display:"flex", flexDirection:"column", gap:4 }}>
+            {grupos.map(g => {
+              const pct = g.valor / total * 100;
+              const open = aberto === g.nome;
+              return (
+                <div key={g.nome} style={{ borderRadius:10, background: open ? P.lilasClaro : hover === g.nome ? "#FAF8FF" : "transparent" }}>
+                  <div onClick={() => setAberto(open ? null : g.nome)} onMouseEnter={() => setHover(g.nome)} onMouseLeave={() => setHover(null)}
+                    style={{ padding:"8px 10px", cursor:"pointer" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12 }}>
+                      <span style={{ width:10, height:10, borderRadius:3, background:g.cor, flex:"0 0 auto" }}/>
+                      <span style={{ fontWeight:700, color:P.tinta, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.nome}</span>
+                      <span style={{ color:P.suave, fontSize:11 }}>{g.itens.length}×</span>
+                      <span style={{ marginLeft:"auto", color:P.suave, fontSize:11, fontWeight:600 }}>{pct.toFixed(0)}%</span>
+                      <span style={{ fontWeight:800, color:P.tinta, minWidth:92, textAlign:"right" }}>{brl(g.valor)}</span>
+                      <span style={{ color:P.suave, fontSize:9, width:10 }}>{open ? "▲" : "▼"}</span>
+                    </div>
+                    <div style={{ height:6, background:P.lilasClaro, borderRadius:4, marginTop:6, marginLeft:18 }}>
+                      <div style={{ height:"100%", width:`${pct}%`, background:g.cor, borderRadius:4 }}/>
+                    </div>
+                  </div>
+                  {open && (
+                    <div style={{ padding:"0 10px 10px 28px" }}>
+                      {[...g.itens].sort((a, b) => b.valor - a.valor).map(r => (
+                        <div key={r.id} style={{ display:"flex", gap:8, fontSize:11, padding:"4px 0", borderTop:`1px solid ${P.linha}`, color:P.tinta }}>
+                          <span style={{ color:P.suave, width:44, flex:"0 0 auto" }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : r.mes.slice(5) + "/" + r.mes.slice(2, 4)}</span>
+                          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.descricao || "—"}</span>
+                          {r.info && <span style={{ color:P.suave }}>· {r.info}</span>}
+                          <span style={{ marginLeft:"auto", fontWeight:700, whiteSpace:"nowrap" }}>{brl(r.valor)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Aba "Geral" (resumo do ano) ────────────────────────────────────────────
 function Geral({ rows, ano, onPick }) {
   const [hover, setHover] = useState(null);
@@ -393,6 +522,8 @@ function Geral({ rows, ano, onPick }) {
           sub={tot("receitas") ? `Margem ${(tot("saldo") / tot("receitas") * 100).toFixed(0)}%` : ""}/>
         <Kpi label="20% empresa" value={brl(tot("receitas") * .2)} color={P.laranja} sub="Soma da coluna 20% das receitas"/>
       </div>
+
+      <ParaOndeFoi rows={rows.filter(r => r.secao !== "receita" && r.mes.startsWith(`${ano}-`))} titulo={`${ano}`}/>
 
       <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
         <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>
@@ -472,6 +603,7 @@ export default function Financeiro() {
   const fileRef = useRef();
   const backupRef = useRef();
 
+  useEffect(() => { document.title = "ai.go — Financeiro"; }, []);
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); } catch {} }, [rows]);
 
   const mes = aba === "geral" ? null : mesKey(ano, aba);
@@ -571,8 +703,6 @@ export default function Financeiro() {
     background: active ? P.papel : "transparent", color: active ? P.roxo : P.suave,
     fontFamily:FONT, fontSize:13, fontWeight: active ? 800 : 600, cursor:"pointer", whiteSpace:"nowrap",
   });
-  const navLink = { color:P.roxo, fontSize:12, fontWeight:700, textDecoration:"none", padding:"6px 10px",
-    border:`1px solid ${P.lilas}`, borderRadius:8, background:P.papel, whiteSpace:"nowrap" };
 
   return (
     <div style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}>
@@ -587,10 +717,6 @@ export default function Financeiro() {
             <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>‹</button>
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
-          </div>
-          <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
-            <a href="/" style={navLink}>📊 Relatórios</a>
-            <a href="/estoque" style={navLink}>📦 Estoque</a>
           </div>
         </div>
         {/* abas como no Google Planilhas */}
@@ -701,6 +827,10 @@ export default function Financeiro() {
                 color={P.roxo} sub={resumo.receitas ? `Margem ${(resumo.saldo / resumo.receitas * 100).toFixed(0)}%` : "Receitas − gastos"}/>
               <Kpi label="Falta pagar" value={<span style={{ color:resumo.naoPago ? P.vermelho : P.tinta }}>{brl(resumo.naoPago)}</span>}
                 color={P.laranja} sub={resumo.receitas - resumo.recebido ? `A receber: ${brl(resumo.receitas - resumo.recebido)}` : "Gastos marcados como não pago"}/>
+            </div>
+
+            <div style={{ marginBottom:20 }}>
+              <ParaOndeFoi key={mes} rows={doMes.filter(r => r.secao !== "receita")} titulo={titulo}/>
             </div>
 
             <div className="fin-cols">
