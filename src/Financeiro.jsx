@@ -192,20 +192,23 @@ function downloadFile(name, content, type) {
   URL.revokeObjectURL(url);
 }
 
-function compressImage(file) {
+// O lado maior fica em até 1568px (o máximo que a IA aproveita); com muitos prints
+// reduz um pouco para o envio caber no limite da Vercel (~4,5 MB)
+function compressImage(file, total = 1) {
+  const lado = total <= 4 ? 1568 : total <= 7 ? 1300 : 1100;
   return new Promise((res, rej) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const maxW = 900, maxH = 1600;
-      let scale = Math.min(1, maxW / img.width);
-      let w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-      if (h > maxH) { scale = maxH / h; w = Math.round(w * scale); h = maxH; }
+      const scale = Math.min(1, lado / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
       const canvas = document.createElement("canvas");
       canvas.width = w; canvas.height = h;
-      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      res(canvas.toDataURL("image/jpeg", 0.6).split(",")[1]);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      res(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
     };
     img.onerror = rej;
     img.src = url;
@@ -655,10 +658,10 @@ function FinanceiroApp({ senha, sair }) {
     setReading(true);
     setMsg(`Lendo ${files.length} print${files.length > 1 ? "s" : ""} com IA...`);
     try {
-      const images = await Promise.all(files.map(compressImage));
+      const images = await Promise.all(files.map(f => compressImage(f, files.length)));
       const resp = await fetch("/api/ler-financeiro", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ images, hoje: hojeISO(), clientes: CLIENTS, opcoes: OPTS }),
+        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: OPTS }),
       });
       if (resp.status === 413) throw new Error("Imagens muito grandes. Tente com menos prints por vez.");
       if (resp.status === 401) { sair(); return; }

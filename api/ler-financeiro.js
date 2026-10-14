@@ -14,11 +14,23 @@ async function readBody(req) {
   return JSON.parse(raw);
 }
 
-function buildPrompt({ hoje, clientes, opcoes = {} }) {
+function buildPrompt({ hoje, mesAberto, clientes, opcoes = {} }) {
   const list = k => (opcoes[k] || []).join(", ");
-  return `Você é o assistente financeiro da ai.go (agência de social media e fotografia). Analise os prints enviados (comprovantes de PIX, transferências, boletos, extratos bancários, faturas de cartão, notas, recibos) e extraia TODOS os lançamentos financeiros.
+  return `Você é o assistente financeiro da ai.go (agência de social media e fotografia). Analise os prints enviados (comprovantes de PIX, transferências, boletos, extratos bancários, faturas de cartão, notas, recibos ou prints de PLANILHA/tabela) e extraia TODOS os lançamentos financeiros.
 
 Hoje é ${hoje}. Se o print não mostrar o ano, use o ano mais provável considerando a data de hoje.
+O usuário está com o mês ${mesAberto} aberto no sistema. Quando o print mostrar só o dia (sem mês), use esse mês ${mesAberto}.
+
+PRINT DE PLANILHA/TABELA (linhas com colunas como Dia, Descrição/Gastos Fixos, Valor, Forma de pag., Status, Info):
+- Copie linha por linha, exatamente como está escrito. Não resuma, não renomeie e não junte linhas.
+- "descricao" = o texto da coluna de descrição, igual ao print (ex.: "Alessa Salário", "Google Drive Fotos").
+- "data" = ${mesAberto}-DD, usando o número da coluna Dia (com 2 dígitos). IGNORE o nome de mês escrito em títulos/cabeçalhos da planilha.
+- "valor" = o valor da coluna Valor, lido com atenção dígito por dígito (formato brasileiro: "R$ 1.599,43" vira 1599.43).
+- "status" = copie da coluna Status: "Pago" vira "pago"; "Não pago"/"Não p..." vira "nao_pago".
+- "forma" e "info" = copie das colunas correspondentes.
+- A seção vem do título acima da tabela: "GASTOS FIXOS" = fixo, "GASTOS VARIÁVEIS" = variavel, "PARCELAS E EXTRAS" = extra, "RECEITAS" = receita.
+- Linha sem valor preenchido: inclua mesmo assim com "valor": 0.
+- Ignore quadros de totais/resumo (ex.: "PAGOS", "NÃO PAGO") e cabeçalhos.
 
 Classifique cada lançamento em uma "secao":
 - "receita": dinheiro que ENTROU (pagamento de cliente, sinal de ensaio, mensalidade etc.)
@@ -40,7 +52,7 @@ Para cada lançamento retorne:
 
 Regras:
 - Em extratos com várias linhas, um lançamento por linha. Ignore linhas de saldo.
-- Não invente valores. Se não conseguir ler o valor, não inclua.
+- Não invente valores. Em comprovantes/extratos, se não conseguir ler o valor, não inclua.
 - Não duplique o mesmo lançamento que aparecer em mais de um print.
 
 Responda APENAS com JSON válido, sem markdown:
@@ -70,6 +82,7 @@ export default async function handler(req, res) {
     ...images.map(data => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } })),
     { type: "text", text: buildPrompt({
       hoje: body.hoje || new Date().toISOString().slice(0, 10),
+      mesAberto: /^\d{4}-\d{2}$/.test(body.mesAberto || "") ? body.mesAberto : (body.hoje || new Date().toISOString()).slice(0, 7),
       clientes: body.clientes || [],
       opcoes: body.opcoes || {},
     }) },
@@ -86,7 +99,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 4000,
+        max_tokens: 16000,
         messages: [{ role: "user", content }],
       }),
     });
