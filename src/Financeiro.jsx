@@ -76,6 +76,10 @@ const SECTIONS = {
 const GASTOS = ["fixo","variavel","extra"];
 
 const STORAGE_KEY = "aigo-financeiro-v2";
+const REVIEW_KEY = "aigo-financeiro-conferencia";   // o que a IA leu e ainda não foi salvo
+const HIST_KEY = "aigo-financeiro-historico";       // últimas importações (para conferir/desfazer)
+
+const lerJSON = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? def; } catch { return def; } };
 
 // Paleta (mesma da planilha)
 const P = {
@@ -93,7 +97,7 @@ body{background:${P.bg}}
 .fin-top{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 16px;max-width:1800px;margin:0 auto}
 @media (max-width:600px){.fin-nome{display:none}}
 .fin-cell:focus{outline:2px solid ${P.roxo2};outline-offset:-2px;background:#fff !important}
-.fin-row:hover td{background:#FAF8FF}
+.fin-row:hover td{filter:brightness(.985)}
 .fin-row:hover .fin-del{opacity:1}
 .fin-del{opacity:.25}
 @media (hover:none){.fin-del{opacity:.6}}
@@ -175,19 +179,6 @@ function toTSV(rows, cols) {
   return rows.map(r => cols.map(c => clean(cellText(r, c))).join("\t")).join("\n");
 }
 
-function toCSV(rows) {
-  const cols = ["mes","secao","dia","descricao","valor","p80","p20","forma","status","categoria","servico","tipo","info"];
-  const head = ["Mês","Seção","Dia","Descrição","Valor","80% empresa","20% empresa","Forma de pag.","Status","Categoria","Serviço","Fotografia","Info"];
-  const esc = v => { const s = String(v ?? ""); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const val = (r, c) => {
-    if (c === "mes") { const [y, m] = r.mes.split("-"); return `${MESES[+m-1]} ${y}`; }
-    if (c === "secao") return SECTIONS[r.secao].title;
-    if ((c === "p80" || c === "p20") && r.secao !== "receita") return "";
-    return cellText(r, c);
-  };
-  return "﻿" + [head.join(";"), ...rows.map(r => cols.map(c => esc(val(r, c))).join(";"))].join("\r\n");
-}
-
 function downloadFile(name, content, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
@@ -259,7 +250,7 @@ function ChipSelect({ field, value, onChange }) {
 }
 
 // ── Seção (tabela estilo planilha) ─────────────────────────────────────────
-function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extra }) {
+function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extra, sel, onToggle, onToggleAll, destaque }) {
   const { title, cols } = SECTIONS[secao];
   const pago = rows.filter(r => r.status === "pago").reduce((s, r) => s + r.valor, 0);
   const naoPago = rows.filter(r => r.status !== "pago").reduce((s, r) => s + r.valor, 0);
@@ -267,6 +258,9 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const th = { background:P.lilas, color:P.tinta, fontSize:11, fontWeight:700, padding:"6px 8px",
     borderRight:`1px solid ${P.papel}`, whiteSpace:"nowrap", textAlign:"left" };
   const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0, background:P.papel };
+  const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
+  const caixa = { width:16, height:16, cursor:"pointer", accentColor:P.roxo2 };
+  const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFF6D5" } : {};
 
   return (
     <div style={{ background:P.papel, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(59,28,126,.08)",
@@ -276,13 +270,17 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
         <div style={{ fontSize:11, opacity:.6 }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {extra}
-          <HeadBtn onClick={onCopy} disabled={!rows.length} title="Copia as linhas para colar na sua planilha">📋 Copiar</HeadBtn>
+          <HeadBtn onClick={onCopy} disabled={!rows.length} title="Copia todas as linhas desta tabela para colar na sua planilha">📋 Copiar tudo</HeadBtn>
         </div>
       </div>
       <div style={{ overflowX:"auto" }}>
         <table style={{ borderCollapse:"collapse", width:"100%", minWidth:cols.reduce((s, c) => s + COL[c].w, 30), fontFamily:FONT }}>
           <thead>
             <tr>
+              <th style={{ ...th, width:34, textAlign:"center" }}>
+                <input type="checkbox" checked={todos} disabled={!rows.length} title="Selecionar todas"
+                  onChange={e => onToggleAll(rows.map(r => r.id), e.target.checked)} style={caixa}/>
+              </th>
               {cols.map(c => <th key={c} style={{ ...th, width:COL[c].w, textAlign:["valor","p80","p20"].includes(c) ? "right" : c === "dia" ? "center" : "left" }}>{COL[c].label}</th>)}
               <th style={{ ...th, width:30, borderRight:"none" }}/>
             </tr>
@@ -290,6 +288,9 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
           <tbody>
             {rows.map(r => (
               <tr key={r.id} className="fin-row">
+                <td style={{ ...td, textAlign:"center", ...fundo(r) }}>
+                  <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} style={caixa}/>
+                </td>
                 {cols.map(c => {
                   const col = COL[c];
                   const set = v => onEdit(r.id, { [c]: v });
@@ -300,16 +301,16 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
                   else if (col.kind === "calc") cell = <div style={{ ...cellBase, textAlign:"right", color:P.suave }}>{brl(col.calc(r))}</div>;
                   else if (col.kind === "chip") cell = <ChipSelect field={c} value={r[c]} onChange={set}/>;
                   else cell = <TextCell value={r[c]} onChange={set} bold={c === "descricao"} placeholder={c === "descricao" ? "Descrição" : ""}/>;
-                  return <td key={c} style={td}>{cell}</td>;
+                  return <td key={c} style={{ ...td, ...fundo(r) }}>{cell}</td>;
                 })}
-                <td style={{ ...td, borderRight:"none", textAlign:"center" }}>
+                <td style={{ ...td, borderRight:"none", textAlign:"center", ...fundo(r) }}>
                   <button className="fin-del" onClick={() => onRemove(r.id)} title="Excluir linha"
                     style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", fontSize:13, padding:"4px 8px" }}>✕</button>
                 </td>
               </tr>
             ))}
             <tr>
-              <td colSpan={cols.length + 1} style={{ padding:0 }}>
+              <td colSpan={cols.length + 2} style={{ padding:0 }}>
                 <button onClick={onAdd} style={{ width:"100%", border:"none", background:P.lilasClaro, color:P.roxo2,
                   fontFamily:FONT, fontSize:12, fontWeight:700, padding:"8px", cursor:"pointer", textAlign:"left", paddingLeft:14 }}>
                   ＋ Adicionar linha
@@ -602,7 +603,11 @@ function FinanceiroApp({ senha, sair }) {
   const [rows, setRows] = useState(load);
   const [ano, setAno] = useState(now.getFullYear());
   const [aba, setAba] = useState(now.getMonth());           // 0-11 ou "geral"
-  const [review, setReview] = useState([]);
+  const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
+  const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
+  const [sel, setSel] = useState(() => new Set());
+  const [destaque, setDestaque] = useState(() => new Set());
+  const [salvo, setSalvo] = useState({ ok:true, quando:null });
   const [reading, setReading] = useState(false);
   const [msg, setMsg] = useState("");
   const [drag, setDrag] = useState(false);
@@ -610,14 +615,22 @@ function FinanceiroApp({ senha, sair }) {
   const backupRef = useRef();
 
   useEffect(() => { document.title = "ai.go — Financeiro"; }, []);
-  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); } catch {} }, [rows]);
+  // Salva e confere lendo de volta; se o navegador não guardar, avisa na tela
+  useEffect(() => {
+    try {
+      const json = JSON.stringify(rows);
+      localStorage.setItem(STORAGE_KEY, json);
+      setSalvo({ ok: localStorage.getItem(STORAGE_KEY) === json, quando: new Date() });
+    } catch { setSalvo({ ok:false, quando: new Date() }); }
+  }, [rows]);
+  useEffect(() => { try { localStorage.setItem(REVIEW_KEY, JSON.stringify(review)); } catch {} }, [review]);
+  useEffect(() => { try { localStorage.setItem(HIST_KEY, JSON.stringify(historico)); } catch {} }, [historico]);
   // Site aberto em outra aba: recebe o que ela salvou, em vez de sobrescrever
   useEffect(() => {
     const onStorage = e => { if (e.key === STORAGE_KEY && e.newValue) { try { setRows(JSON.parse(e.newValue).map(normalize)); } catch {} } };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
-  const [ultimaImportacao, setUltimaImportacao] = useState([]);
 
   const mes = aba === "geral" ? null : mesKey(ano, aba);
   const doMes = useMemo(() => rows.filter(r => r.mes === mes), [rows, mes]);
@@ -652,13 +665,33 @@ function FinanceiroApp({ senha, sair }) {
     setMsg(`✅ ${novos.length} gastos fixos copiados do mês anterior, todos como "Não pago".`);
   }
 
-  async function copiar(secao) {
-    const rs = bySec(secao);
+  async function copiarLinhas(lista) {
+    const porSecao = Object.keys(SECTIONS).map(k => [k, lista.filter(r => r.secao === k)]).filter(([, rs]) => rs.length);
+    if (!porSecao.length) return;
     try {
-      await navigator.clipboard.writeText(toTSV(rs, SECTIONS[secao].cols));
-      setMsg(`📋 ${rs.length} linhas de ${SECTIONS[secao].title} copiadas. Na sua planilha, clique na primeira célula vazia da coluna "Dia" e cole (Ctrl+V).`);
-    } catch { setMsg("⚠️ Não consegui copiar. Use o botão Baixar."); }
+      await navigator.clipboard.writeText(porSecao.map(([k, rs]) => toTSV(rs, SECTIONS[k].cols)).join("\n\n"));
+      const nomes = porSecao.map(([k, rs]) => `${rs.length} de ${SECTIONS[k].title}`).join(", ");
+      setMsg(`📋 Copiado: ${nomes}. Na sua planilha, clique na célula da coluna "Dia" da primeira linha vazia e cole (Ctrl+V ou ⌘V).`
+        + (porSecao.length > 1 ? " Atenção: você copiou de mais de uma tabela; elas vêm separadas por uma linha em branco." : ""));
+    } catch { setMsg("⚠️ Não consegui copiar. Tente de novo clicando no botão."); }
   }
+  const copiar = secao => copiarLinhas(bySec(secao));
+
+  const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = (ids, on) => setSel(s => { const n = new Set(s); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
+  const selecionados = rows.filter(r => sel.has(r.id));
+
+  function excluirSelecionados() {
+    if (!selecionados.length) return;
+    if (!window.confirm(`Excluir ${selecionados.length} lançamento${selecionados.length > 1 ? "s" : ""} selecionado${selecionados.length > 1 ? "s" : ""}?`)) return;
+    const ids = new Set(selecionados.map(r => r.id));
+    setRows(rs => rs.filter(r => !ids.has(r.id)));
+    setMsg(`🗑 ${ids.size} lançamento${ids.size > 1 ? "s" : ""} excluído${ids.size > 1 ? "s" : ""}.`);
+    setSel(new Set());
+  }
+
+  // limpa a seleção ao trocar de mês/ano
+  useEffect(() => { setSel(new Set()); }, [aba, ano]);
 
   // ── prints ──
   async function handleFiles(files) {
@@ -682,7 +715,7 @@ function FinanceiroApp({ senha, sair }) {
       if (!found.length) setMsg("⚠️ Não encontrei lançamentos nesses prints. Adicione a linha manualmente.");
       else {
         setReview(r => { const ja = new Set(r.map(chave)); return [...r, ...found.filter(x => !ja.has(chave(x)))]; });
-        setMsg(`✅ ${found.length} lançamento${found.length > 1 ? "s" : ""} encontrado${found.length > 1 ? "s" : ""}. Confira e clique em "Lançar na planilha".`);
+        setMsg(`🔎 ${found.length} lançamento${found.length > 1 ? "s" : ""} encontrado${found.length > 1 ? "s" : ""}. Confira abaixo e clique em "Salvar lançamentos" (sem isso eles não são salvos).`);
       }
     } catch (e) { setMsg("⚠️ Erro: " + (e.message || String(e))); }
     setReading(false);
@@ -694,22 +727,31 @@ function FinanceiroApp({ senha, sair }) {
     const novos = review.filter(r => !existentes.has(chave(r)));
     const repetidos = review.length - novos.length;
     setRows(rs => sortRows([...rs, ...novos]));
-    setUltimaImportacao(novos.map(r => r.id));
+    setDestaque(new Set(novos.map(r => r.id)));
     const first = novos[0];
     if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); }
     const porMes = {};
     novos.forEach(r => { const [y, m] = r.mes.split("-"); const k = `${MESES[+m - 1]} ${y}`; porMes[k] = (porMes[k] || 0) + 1; });
     const onde = Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
-    setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} adicionado${novos.length !== 1 ? "s" : ""}${onde ? ` (${onde})` : ""}.`
+    if (novos.length) setHistorico(h => [{ id: uid(), quando: new Date().toISOString(), ids: novos.map(r => r.id), onde,
+      mes: novos[0].mes }, ...h].slice(0, 15));
+    setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
       + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : ""));
     setReview([]);
   }
 
-  function desfazerImportacao() {
-    const ids = new Set(ultimaImportacao);
+  function verImportacao(h) {
+    const [y, m] = h.mes.split("-"); setAno(+y); setAba(+m - 1);
+    setDestaque(new Set(h.ids));
+  }
+
+  function desfazerImportacao(h) {
+    const ids = new Set(h.ids);
+    const n = rows.filter(r => ids.has(r.id)).length;
+    if (!window.confirm(`Desfazer esta importação? ${n} lançamento${n !== 1 ? "s" : ""} será${n !== 1 ? "ão" : ""} removido${n !== 1 ? "s" : ""}.`)) return;
     setRows(rs => rs.filter(r => !ids.has(r.id)));
-    setMsg(`↩ Importação desfeita: ${ids.size} lançamento${ids.size !== 1 ? "s" : ""} removido${ids.size !== 1 ? "s" : ""}.`);
-    setUltimaImportacao([]);
+    setHistorico(hs => hs.filter(x => x.id !== h.id));
+    setMsg(`↩ Importação desfeita: ${n} lançamento${n !== 1 ? "s" : ""} removido${n !== 1 ? "s" : ""}.`);
   }
 
   function importBackup(file) {
@@ -726,7 +768,6 @@ function FinanceiroApp({ senha, sair }) {
   }
 
   const titulo = aba === "geral" ? `Geral ${ano}` : `${MESES[aba]} ${ano}`;
-  const exportRows = aba === "geral" ? rows.filter(r => r.mes.startsWith(String(ano))) : doMes;
 
   const tab = active => ({
     padding:"10px 16px", border:"none", borderTop:`3px solid ${active ? P.roxo : "transparent"}`,
@@ -748,7 +789,12 @@ function FinanceiroApp({ senha, sair }) {
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
           </div>
-          <button onClick={sair} title="Sair (pede a senha de novo)" style={{ marginLeft:"auto", border:`1px solid ${P.lilas}`, background:P.papel,
+          <div title={salvo.ok ? "Tudo o que você lança fica guardado neste navegador" : "O navegador não deixou salvar. Não use janela anônima e faça um backup."}
+            style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100, whiteSpace:"nowrap",
+              background: salvo.ok ? "#EEF8F0" : "#FFF0F0", color: salvo.ok ? P.verde : P.vermelho }}>
+            {salvo.ok ? `✓ Salvo${salvo.quando ? " às " + salvo.quando.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }) : ""}` : "⚠ Não foi salvo"}
+          </div>
+          <button onClick={sair} title="Sair (pede a senha de novo)" style={{ border:`1px solid ${P.lilas}`, background:P.papel,
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
         {/* abas como no Google Planilhas */}
@@ -764,8 +810,6 @@ function FinanceiroApp({ senha, sair }) {
           <div style={{ background:P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
             letterSpacing:".1em", textTransform:"uppercase" }}>{titulo}</div>
           <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
-            <Btn onClick={() => downloadFile(`financeiro-${titulo.replace(/\s+/g, "-").toLowerCase()}.csv`, toCSV(exportRows), "text/csv;charset=utf-8")}
-              disabled={!exportRows.length}>⬇ Baixar {aba === "geral" ? "ano" : "mês"} (CSV)</Btn>
             <Btn primary onClick={() => fileRef.current?.click()} disabled={reading}>{reading ? "⏳ Lendo..." : "📸 Enviar prints"}</Btn>
           </div>
         </div>
@@ -781,15 +825,37 @@ function FinanceiroApp({ senha, sair }) {
 
         {msg && (
           <div style={{ fontSize:12, padding:"10px 14px", borderRadius:10, marginBottom:14, wordBreak:"break-word",
-            background: msg.startsWith("⚠️") ? "#FFF0F0" : "#EEF8F0", color: msg.startsWith("⚠️") ? P.vermelho : P.verde,
+            background: msg.startsWith("⚠️") ? "#FFF0F0" : msg.startsWith("🔎") ? P.lilasClaro : "#EEF8F0", color: msg.startsWith("⚠️") ? P.vermelho : msg.startsWith("🔎") ? P.roxo : P.verde,
             border:`1px solid ${msg.startsWith("⚠️") ? "#F5C6C6" : "#C8E6CF"}`, display:"flex", gap:10, alignItems:"flex-start" }}>
             <span style={{ flex:1 }}>{msg}</span>
-            {ultimaImportacao.length > 0 && msg.startsWith("✅") && (
-              <button onClick={desfazerImportacao} style={{ border:`1px solid ${P.verde}`, background:"#fff", color:P.verde, borderRadius:8,
-                padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↩ Desfazer</button>
-            )}
             <button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:"inherit" }}>✕</button>
           </div>
+        )}
+
+        {historico.length > 0 && (
+          <details style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, marginBottom:14, fontSize:12 }}>
+            <summary style={{ padding:"10px 14px", cursor:"pointer", fontWeight:700, color:P.roxo }}>
+              🕘 Conferir importações ({historico.length}) — veja o que foi salvo e onde
+            </summary>
+            <div style={{ padding:"0 14px 10px" }}>
+              {historico.map(h => {
+                const existem = rows.filter(r => h.ids.includes(r.id)).length;
+                return (
+                  <div key={h.id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px solid ${P.linha}` }}>
+                    <span style={{ color:P.suave, minWidth:110 }}>{new Date(h.quando).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>
+                    <span style={{ flex:1, color:P.tinta }}>{h.onde || `${h.ids.length} lançamentos`}</span>
+                    <span style={{ fontWeight:700, color: existem === h.ids.length ? P.verde : P.laranja }}>
+                      {existem === h.ids.length ? `✓ ${existem} salvos` : `${existem} de ${h.ids.length} ainda salvos`}
+                    </span>
+                    <button onClick={() => verImportacao(h)} style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8,
+                      padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" }}>👁 Ver</button>
+                    <button onClick={() => desfazerImportacao(h)} disabled={!existem} style={{ border:`1px solid #F5C6C6`, background:P.papel, color:P.vermelho, borderRadius:8,
+                      padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor: existem ? "pointer" : "default", opacity: existem ? 1 : .4 }}>↩ Desfazer</button>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
         )}
 
         {/* revisão do que a IA leu */}
@@ -806,7 +872,7 @@ function FinanceiroApp({ senha, sair }) {
                 </select>
                 <HeadBtn onClick={() => setReview([])}>Descartar</HeadBtn>
                 <button onClick={confirmar} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:8, padding:"5px 12px",
-                  fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Lançar na planilha</button>
+                  fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Salvar lançamentos</button>
               </div>
             </div>
             <div style={{ overflowX:"auto" }}>
@@ -879,13 +945,13 @@ function FinanceiroApp({ senha, sair }) {
               <div style={{ display:"flex", flexDirection:"column", gap:20, minWidth:0 }}>
                 {GASTOS.map(s => (
                   <Section key={s} secao={s} rows={bySec(s)} onEdit={edit} onAdd={() => add(s)} onRemove={remove}
-                    onSortDia={sortDia} onCopy={() => copiar(s)}
+                    onSortDia={sortDia} onCopy={() => copiar(s)} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}
                     extra={s === "fixo" && <HeadBtn onClick={puxarFixos} title="Copia os gastos fixos do mês anterior">↻ Puxar do mês anterior</HeadBtn>}/>
                 ))}
               </div>
               <div style={{ minWidth:0 }}>
                 <Section secao="receita" rows={bySec("receita")} onEdit={edit} onAdd={() => add("receita")} onRemove={remove}
-                  onSortDia={sortDia} onCopy={() => copiar("receita")}/>
+                  onSortDia={sortDia} onCopy={() => copiar("receita")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}/>
               </div>
             </div>
           </>
@@ -900,6 +966,20 @@ function FinanceiroApp({ senha, sair }) {
             onChange={e => { e.target.files[0] && importBackup(e.target.files[0]); e.target.value = ""; }}/>
         </div>
       </div>
+
+      {selecionados.length > 0 && (
+        <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:20, maxWidth:"calc(100% - 32px)",
+          background:P.roxo, color:"#fff", borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", gap:8,
+          flexWrap:"wrap", boxShadow:"0 10px 30px rgba(59,28,126,.35)", fontSize:13 }}>
+          <b style={{ marginRight:6 }}>{selecionados.length} selecionado{selecionados.length > 1 ? "s" : ""}</b>
+          <button onClick={() => copiarLinhas(selecionados)} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:9,
+            padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>📋 Copiar</button>
+          <button onClick={excluirSelecionados} style={{ background:"#FFE3E3", color:P.vermelho, border:"none", borderRadius:9,
+            padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>🗑 Excluir</button>
+          <button onClick={() => setSel(new Set())} style={{ background:"transparent", color:"#fff", border:"1px solid rgba(255,255,255,.35)",
+            borderRadius:9, padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>Limpar seleção</button>
+        </div>
+      )}
     </div>
   );
 }
