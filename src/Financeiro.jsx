@@ -25,14 +25,17 @@ const CHIPS = {
     ["pago", "#D7EFD9", "#1E7B34", "Pago"],
     ["nao_pago", "#FBD9DB", "#C62828", "Não pago"],
   ],
+  // Categorias de gasto: [nome, cor] — paleta categórica validada, ordem fixa
   categoria: [
-    ["Extra", "#FFE9A8", "#8A6500"],
-    ["Investimento", "#EADCC2", "#7A5320"],
-    ["Maringá", "#1F5FBF", "#FFFFFF"],
-    ["Mercado", "#CFE2F3", "#1F4E79"],
-    ["Alimentação", "#FCE1C8", "#A04A00"],
-    ["Transporte", "#DDE3EA", "#37474F"],
-    ["Outro", "#E8EAED", "#3C4043"],
+    ["Equipe e salários", "#2a78d6"],
+    ["Impostos e encargos", "#eb6834"],
+    ["Estrutura do estúdio", "#1baf7a"],
+    ["Ferramentas e assinaturas", "#eda100"],
+    ["Dívidas e financiamentos", "#e87ba4"],
+    ["Investimentos", "#008300"],
+    ["Marketing e anúncios", "#6250d6"],
+    ["Maringá e viagens", "#e34948"],
+    ["Outros", "#9A94AC"],
   ],
   servico: [
     ["Social Media", "#1F5FBF", "#FFFFFF"],
@@ -52,26 +55,49 @@ const CHIPS = {
   ],
 };
 const OPTS = Object.fromEntries(Object.entries(CHIPS).map(([k, v]) => [k, v.map(o => o[0])]));
+const COR_CAT = Object.fromEntries(CHIPS.categoria);
+
+// Sugere a categoria pelo nome do gasto (a ordem importa: "Alessa Tráfego" é equipe, não anúncio)
+const REGRAS_CAT = [
+  ["Maringá e viagens", /maring|ped[aá]gio|combust|gasolina|etanol|uber|viagem|hotel|passagem/],
+  ["Impostos e encargos", /\bfgts\b|\binss\b|\bdas\b|contador|contabil|imposto|\biss\b|darf|simples nacional|irpf|tributo/],
+  ["Dívidas e financiamentos", /empr[eé]stimo|cons[oó]rcio|financiamento|juros/],
+  ["Equipe e salários", /sal[aá]rio|pr[oó][ -]?labore|alessa|kamilly|mikaelly|ilda|freela|funcion|equipe|vale|f[eé]rias|13º|décimo/],
+  ["Estrutura do estúdio", /aluguel|[aá]gua|energia|\bluz\b|internet|condom[ií]nio|telefone|limpeza|iptu/],
+  ["Ferramentas e assinaturas", /adobe|canva|capcut|icloud|google|drive|\bsite\b|dom[ií]nio|hospedagem|assinatura|notion|figma|chatgpt|claude|lightroom|spotify|software|app\b/],
+  ["Marketing e anúncios", /an[uú]ncio|\bads\b|facebook|meta|instagram|impulsion|tr[aá]fego pago|marketing|brinde/],
+  ["Investimentos", /investimento|equipamento|c[aâ]mera|lente|mesa|cadeira|notebook|computador|m[oó]vel|est[uú]dio|ilumina|trip[eé]/],
+];
+function sugerirCategoria(descricao = "", antiga = "") {
+  if (antiga === "Investimento") return "Investimentos";
+  if (antiga === "Maringá") return "Maringá e viagens";
+  const d = descricao.toLowerCase();
+  const achou = REGRAS_CAT.find(([, re]) => re.test(d));
+  return achou ? achou[0] : "Outros";
+}
+// Na sua planilha, Parcelas e Extras usa outras categorias; ao copiar, convertemos
+const CAT_PLANILHA = { "Investimentos":"Investimento", "Maringá e viagens":"Maringá" };
 
 const COL = {
-  dia:       { label:"Dia", w:46, kind:"dia" },
-  descricao: { label:"Descrição", w:150, kind:"text" },
-  valor:     { label:"Valor", w:112, kind:"money" },
-  p80:       { label:"80% empresa", w:96, kind:"calc", calc:r => r.valor * .8 },
-  p20:       { label:"20% empresa", w:96, kind:"calc", calc:r => r.valor * .2 },
-  forma:     { label:"Forma de pag.", w:118, kind:"chip" },
-  status:    { label:"Status", w:96, kind:"chip" },
-  categoria: { label:"Categoria", w:126, kind:"chip" },
-  servico:   { label:"Serviço", w:112, kind:"chip" },
-  tipo:      { label:"Fotografia", w:118, kind:"chip" },
-  info:      { label:"Info", w:96, kind:"text" },
+  dia:       { label:"Dia", w:36, kind:"dia" },
+  descricao: { label:"Descrição", w:118, kind:"text" },
+  valor:     { label:"Valor", w:92, kind:"money" },
+  p80:       { label:"80% empresa", w:84, kind:"calc", calc:r => r.valor * .8 },
+  p20:       { label:"20% empresa", w:84, kind:"calc", calc:r => r.valor * .2 },
+  forma:     { label:"Forma", w:86, kind:"chip" },
+  status:    { label:"Status", w:86, kind:"chip" },
+  categoria: { label:"Categoria", w:146, kind:"cat" },
+  servico:   { label:"Serviço", w:106, kind:"chip" },
+  tipo:      { label:"Fotografia", w:110, kind:"chip" },
+  info:      { label:"Info", w:48, kind:"text" },
 };
 
+// cols = o que aparece na tela; copia = a ordem das colunas da sua planilha (para colar)
 const SECTIONS = {
-  fixo:     { title:"Gastos Fixos",       cols:["dia","descricao","valor","forma","status","info"] },
-  variavel: { title:"Gastos Variáveis",   cols:["dia","descricao","valor","forma","status","info"] },
-  extra:    { title:"Parcelas e Extras",  cols:["dia","descricao","valor","categoria","status","forma","info"] },
-  receita:  { title:"Receitas",           cols:["dia","descricao","valor","p80","p20","servico","tipo","forma","info"] },
+  fixo:     { title:"Gastos Fixos",      cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","forma","status","info"] },
+  variavel: { title:"Gastos Variáveis",  cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","forma","status","info"] },
+  extra:    { title:"Parcelas e Extras", cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","categoria","status","forma","info"] },
+  receita:  { title:"Receitas",          cols:["dia","descricao","valor","p80","p20","servico","tipo"], copia:["dia","descricao","valor","p80","p20","servico","tipo","forma","info"] },
 };
 const GASTOS = ["fixo","variavel","extra"];
 
@@ -92,9 +118,13 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wg
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:${P.bg}}
 ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#cfc6e8;border-radius:6px}
-.fin-cols{display:grid;grid-template-columns:1fr;gap:20px;align-items:start}
-@media (min-width:1640px){.fin-cols{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr)}}
-.fin-top{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 16px;max-width:1800px;margin:0 auto}
+.fin-2col{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+@media (min-width:1100px){.fin-2col{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.fin-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+@media (min-width:1200px){.fin-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:560px){.fin-kpis{grid-template-columns:1fr}}
+.fin-avisos{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px}
+.fin-top{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 16px;max-width:1380px;margin:0 auto}
 @media (max-width:600px){.fin-nome{display:none}}
 .fin-cell:focus{outline:2px solid ${P.roxo2};outline-offset:-2px;background:#fff !important}
 .fin-row:hover td{filter:brightness(.985)}
@@ -131,7 +161,7 @@ function normalize(r) {
     valor: parseValor(r.valor),
     forma: pick("forma", "Pix"),
     status: r.status === "nao_pago" ? "nao_pago" : "pago",
-    categoria: secao === "extra" ? pick("categoria", "Extra") : "",
+    categoria: secao === "receita" ? "" : (OPTS.categoria.includes(r.categoria) ? r.categoria : sugerirCategoria(r.descricao, r.categoria)),
     servico: secao === "receita" ? pick("servico", "Social Media") : "",
     tipo: secao === "receita" ? pick("tipo", "") : "",
     info: r.info || "",
@@ -171,6 +201,7 @@ const cellText = (r, c) => {
   if (col.kind === "calc") return num(col.calc(r));
   if (c === "valor") return num(r.valor);
   if (c === "status") return r.status === "pago" ? "Pago" : "Não pago";
+  if (c === "categoria") return CAT_PLANILHA[r.categoria] || "Extra";
   return r[c] ?? "";
 };
 
@@ -211,8 +242,8 @@ function compressImage(file, total = 1) {
 
 // ── Células editáveis ──────────────────────────────────────────────────────
 const cellBase = {
-  width:"100%", border:"none", background:"transparent", fontFamily:FONT, fontSize:12,
-  color:P.tinta, padding:"6px 8px", outline:"none", borderRadius:0,
+  width:"100%", border:"none", background:"transparent", fontFamily:FONT, fontSize:11.5,
+  color:P.tinta, padding:"4px 6px", outline:"none", borderRadius:0,
 };
 
 function TextCell({ value, onChange, onBlur, align, placeholder, bold }) {
@@ -235,16 +266,30 @@ function ChipSelect({ field, value, onChange }) {
   const o = chipOf(field, value);
   const [, bg, fg] = o || [null, "#F1EFF6", P.suave];
   return (
-    <div style={{ position:"relative", padding:"3px 6px", maxWidth:160 }}>
+    <div style={{ position:"relative", padding:"2px 4px", maxWidth:130 }}>
       <select className="fin-cell" value={value} onChange={e => onChange(e.target.value)}
         style={{ appearance:"none", WebkitAppearance:"none", width:"100%", border:"none", cursor:"pointer",
-          background:bg, color:fg, fontFamily:FONT, fontSize:11, fontWeight:600,
-          padding:"4px 20px 4px 9px", borderRadius:100, outline:"none" }}>
+          background:bg, color:fg, fontFamily:FONT, fontSize:10.5, fontWeight:600,
+          padding:"3px 18px 3px 8px", borderRadius:100, outline:"none" }}>
         {field === "tipo" && <option value="">—</option>}
         {CHIPS[field].map(([v, , , label]) => <option key={v} value={v}>{label || v}</option>)}
       </select>
-      <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontSize:8,
+      <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:7,
         color:fg, pointerEvents:"none" }}>▼</span>
+    </div>
+  );
+}
+
+// Categoria: quadradinho colorido + nome (mais discreto que um chip)
+function CatSelect({ value, onChange }) {
+  return (
+    <div style={{ position:"relative", display:"flex", alignItems:"center", padding:"0 4px 0 8px" }}>
+      <span style={{ width:9, height:9, borderRadius:2, background:COR_CAT[value] || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
+      <select className="fin-cell" value={value} onChange={e => onChange(e.target.value)}
+        style={{ ...cellBase, appearance:"none", WebkitAppearance:"none", cursor:"pointer", color:P.suave,
+          fontSize:10.5, fontWeight:600, paddingLeft:5, whiteSpace:"nowrap", textOverflow:"ellipsis" }}>
+        {OPTS.categoria.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
     </div>
   );
 }
@@ -255,18 +300,19 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const pago = rows.filter(r => r.status === "pago").reduce((s, r) => s + r.valor, 0);
   const naoPago = rows.filter(r => r.status !== "pago").reduce((s, r) => s + r.valor, 0);
   const total = pago + naoPago;
-  const th = { background:P.lilas, color:P.tinta, fontSize:11, fontWeight:700, padding:"6px 8px",
+  const rec = secao === "receita";   // Receitas num roxo um pouco mais claro, para separar do que sai
+  const th = { background: rec ? "#DCD0F7" : P.lilas, color:P.tinta, fontSize:10.5, fontWeight:700, padding:"5px 6px",
     borderRight:`1px solid ${P.papel}`, whiteSpace:"nowrap", textAlign:"left" };
   const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0, background:P.papel };
   const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
-  const caixa = { width:16, height:16, cursor:"pointer", accentColor:P.roxo2 };
+  const caixa = { width:14, height:14, cursor:"pointer", accentColor:P.roxo2 };
   const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFF6D5" } : {};
 
   return (
     <div style={{ background:P.papel, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(59,28,126,.08)",
       border:`1px solid ${P.linha}` }}>
-      <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-        <div style={{ fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{title}</div>
+      <div style={{ background: rec ? "#5E35B1" : P.roxo, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+        <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{title}</div>
         <div style={{ fontSize:11, opacity:.6 }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {extra}
@@ -274,15 +320,15 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
         </div>
       </div>
       <div style={{ overflowX:"auto" }}>
-        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:cols.reduce((s, c) => s + COL[c].w, 30), fontFamily:FONT }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:cols.reduce((s, c) => s + COL[c].w, 54), fontFamily:FONT }}>
           <thead>
             <tr>
-              <th style={{ ...th, width:34, textAlign:"center" }}>
+              <th style={{ ...th, width:28, textAlign:"center" }}>
                 <input type="checkbox" checked={todos} disabled={!rows.length} title="Selecionar todas"
                   onChange={e => onToggleAll(rows.map(r => r.id), e.target.checked)} style={caixa}/>
               </th>
               {cols.map(c => <th key={c} style={{ ...th, width:COL[c].w, textAlign:["valor","p80","p20"].includes(c) ? "right" : c === "dia" ? "center" : "left" }}>{COL[c].label}</th>)}
-              <th style={{ ...th, width:30, borderRight:"none" }}/>
+              <th style={{ ...th, width:26, borderRight:"none" }}/>
             </tr>
           </thead>
           <tbody>
@@ -300,19 +346,20 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
                   else if (col.kind === "money") cell = <MoneyCell value={r.valor} onChange={set}/>;
                   else if (col.kind === "calc") cell = <div style={{ ...cellBase, textAlign:"right", color:P.suave }}>{brl(col.calc(r))}</div>;
                   else if (col.kind === "chip") cell = <ChipSelect field={c} value={r[c]} onChange={set}/>;
+                  else if (col.kind === "cat") cell = <CatSelect value={r.categoria} onChange={set}/>;
                   else cell = <TextCell value={r[c]} onChange={set} bold={c === "descricao"} placeholder={c === "descricao" ? "Descrição" : ""}/>;
                   return <td key={c} style={{ ...td, ...fundo(r) }}>{cell}</td>;
                 })}
                 <td style={{ ...td, borderRight:"none", textAlign:"center", ...fundo(r) }}>
                   <button className="fin-del" onClick={() => onRemove(r.id)} title="Excluir linha"
-                    style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", fontSize:13, padding:"4px 8px" }}>✕</button>
+                    style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", fontSize:12, padding:"2px 6px" }}>✕</button>
                 </td>
               </tr>
             ))}
             <tr>
               <td colSpan={cols.length + 2} style={{ padding:0 }}>
-                <button onClick={onAdd} style={{ width:"100%", border:"none", background:P.lilasClaro, color:P.roxo2,
-                  fontFamily:FONT, fontSize:12, fontWeight:700, padding:"8px", cursor:"pointer", textAlign:"left", paddingLeft:14 }}>
+                <button onClick={onAdd} style={{ width:"100%", border:"none", background: rec ? "#F3EEFD" : P.lilasClaro, color:P.roxo2,
+                  fontFamily:FONT, fontSize:11.5, fontWeight:700, padding:"6px", cursor:"pointer", textAlign:"left", paddingLeft:12 }}>
                   ＋ Adicionar linha
                 </button>
               </td>
@@ -321,8 +368,9 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
         </table>
       </div>
       <div style={{ display:"flex", flexWrap:"wrap", borderTop:`1px solid ${P.linha}` }}>
-        <Total label="Pagos" value={pago} color={P.verde}/>
-        <Total label="Não pago" value={naoPago} color={P.vermelho} highlight={naoPago > 0}/>
+        <Total label={rec ? "Recebido" : "Pagos"} value={pago} color={P.verde}/>
+        {rec ? <Total label="20% empresa" value={total * .2} color={P.tinta}/>
+             : <Total label="Não pago" value={naoPago} color={P.vermelho} highlight={naoPago > 0}/>}
         <Total label="Total" value={total} color={P.tinta}/>
       </div>
     </div>
@@ -331,10 +379,10 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
 
 function Total({ label, value, color, highlight }) {
   return (
-    <div style={{ flex:"1 1 120px", padding:"9px 14px", borderRight:`1px solid ${P.linha}`,
+    <div style={{ flex:"1 1 110px", padding:"7px 12px", borderRight:`1px solid ${P.linha}`,
       background: highlight ? "#FFF4F4" : "transparent" }}>
       <div style={{ fontSize:10, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".07em" }}>{label}</div>
-      <div style={{ fontSize:15, fontWeight:800, color, marginTop:2 }}>{brl(value)}</div>
+      <div style={{ fontSize:13.5, fontWeight:800, color, marginTop:1 }}>{brl(value)}</div>
     </div>
   );
 }
@@ -369,118 +417,132 @@ function Kpi({ label, value, sub, color }) {
   );
 }
 
-// ── "Para onde foi o dinheiro" (rosca + ranking) ───────────────────────────
-const COR_GRUPO = {
-  "Gastos fixos":"#4C27A0", "Gastos variáveis":"#E07020", "Maringá":"#1F5FBF", "Investimento":"#A0712B",
-  "Mercado":"#0E8C9A", "Extra":"#D4A20B", "Alimentação":"#C2185B", "Transporte":"#2E9E6B", "Outro":"#8E8A9E",
-  "Pix":"#2E9E6B", "Sicoob":"#0E6B3B", "Nubank":"#8A3FD1", "Mercado Pago":"#1F5FBF", "Cartão":"#607D8B", "Dinheiro":"#D4A20B",
-};
-const COR_ORDEM = ["#4C27A0","#E07020","#1F5FBF","#2E9E6B","#C2185B","#A0712B","#0E8C9A","#D4A20B"];
-const COR_OUTROS = "#B9B4C7";
+// ── Cabeçalho roxo dos blocos ──────────────────────────────────────────────
+function Cabeca({ titulo, sub, children, cor = P.roxo }) {
+  return (
+    <div style={{ background:cor, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+      <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{titulo}</div>
+      {sub && <div style={{ fontSize:11, opacity:.65 }}>{sub}</div>}
+      {children && <div style={{ marginLeft:"auto", display:"flex", gap:6, flexWrap:"wrap" }}>{children}</div>}
+    </div>
+  );
+}
+const caixaBloco = { background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" };
+
+// Variação em relação ao mês anterior (bomSubir=false para gastos)
+function Variacao({ atual, anterior, bomSubir = true, curto }) {
+  if (!anterior) return <span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{atual ? "novo" : ""}</span>;
+  const p = (atual - anterior) / anterior * 100;
+  if (Math.abs(p) < 0.5) return <span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>= igual</span>;
+  const sobe = p > 0, bom = sobe === bomSubir;
+  return <span style={{ fontSize:10.5, fontWeight:700, color: bom ? P.verde : P.vermelho, whiteSpace:"nowrap" }}>
+    {sobe ? "▲" : "▼"} {Math.abs(p).toFixed(0)}%{curto ? "" : " vs mês anterior"}</span>;
+}
+
+// Mini-gráfico de linha dos últimos meses
+function Linha({ valores, cor, w = 110, h = 34 }) {
+  if (valores.length < 2 || valores.every(v => !v)) return null;
+  const mx = Math.max(...valores), mn = Math.min(...valores);
+  const pts = valores.map((v, i) => [i * (w / (valores.length - 1)), h - 4 - (v - mn) / ((mx - mn) || 1) * (h - 8)]);
+  const [lx, ly] = pts[pts.length - 1];
+  return (
+    <svg width={w} height={h} style={{ flex:"0 0 auto" }} aria-hidden="true">
+      <polyline points={pts.map(p => p.join(",")).join(" ")} fill="none" stroke={cor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+      <circle cx={lx} cy={ly} r="3.5" fill={cor}/>
+    </svg>
+  );
+}
+
+function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha }) {
+  return (
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px",
+      display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:8, minWidth:0 }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
+        <div style={{ fontSize:21, fontWeight:900, color:cor || P.tinta, marginTop:4, whiteSpace:"nowrap" }}>{value}</div>
+        <div style={{ marginTop:3 }}>{variacao}</div>
+        {sub && <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{sub}</div>}
+      </div>
+      {serie && <Linha valores={serie} cor={corLinha}/>}
+    </div>
+  );
+}
+
+// ── "Para onde foi o dinheiro" ─────────────────────────────────────────────
+const COR_FORMA = { "Pix":"#1baf7a", "Sicoob":"#008300", "Nubank":"#6250d6", "Mercado Pago":"#2a78d6", "Cartão":"#eb6834", "Dinheiro":"#eda100", "Outro":"#9A94AC" };
+const COR_ITEM = OPTS.categoria.slice(0, 8).map(c => COR_CAT[c]);
 const MODOS = {
-  categoria: { label:"Categoria", key:r => r.secao === "fixo" ? "Gastos fixos" : r.secao === "variavel" ? "Gastos variáveis" : (r.categoria || "Extra") },
-  item:      { label:"Item",      key:r => r.descricao.trim() || "(sem descrição)" },
-  forma:     { label:"Forma de pag.", key:r => r.forma },
+  categoria: { label:"Categoria",     key:r => r.categoria || "Outros", cor:(n) => COR_CAT[n] },
+  item:      { label:"Item",          key:r => r.descricao.trim() || "(sem descrição)" },
+  forma:     { label:"Forma de pag.", key:r => r.forma, cor:(n) => COR_FORMA[n] },
 };
 
-function ParaOndeFoi({ rows, titulo }) {
-  const [modo, setModo] = useState("categoria");
-  const [hover, setHover] = useState(null);
-  const [aberto, setAberto] = useState(null);
+function agrupar(rows, modo) {
+  const map = {};
+  rows.forEach(r => {
+    const nome = MODOS[modo].key(r), k = nome.toLowerCase();
+    map[k] = map[k] || { nome, valor:0, itens:[] };
+    map[k].valor += r.valor; map[k].itens.push(r);
+  });
+  return map;
+}
 
+function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom }) {
+  const [modo, setModo] = useState("categoria");
+  const [aberto, setAberto] = useState(null);
   const total = rows.reduce((s, r) => s + r.valor, 0);
   const grupos = useMemo(() => {
-    const map = {};
-    rows.forEach(r => {
-      const nome = MODOS[modo].key(r);
-      const k = nome.toLowerCase();
-      map[k] = map[k] || { nome, valor:0, itens:[] };
-      map[k].valor += r.valor;
-      map[k].itens.push(r);
-    });
-    let list = Object.values(map).filter(g => g.valor > 0).sort((a, b) => b.valor - a.valor);
-    if (list.length > 8) {
+    const atual = agrupar(rows, modo), ant = agrupar(anteriores, modo);
+    let list = Object.values(atual).filter(g => g.valor > 0).sort((a, b) => b.valor - a.valor)
+      .map(g => ({ ...g, anterior: ant[g.nome.toLowerCase()]?.valor || 0 }));
+    if (modo === "item" && list.length > 8) {
       const resto = list.slice(7);
       list = [...list.slice(0, 7), { nome:`Outros (${resto.length})`, valor:resto.reduce((s, g) => s + g.valor, 0),
-        itens:resto.flatMap(g => g.itens), outros:true }];
+        itens:resto.flatMap(g => g.itens), anterior:0, outros:true }];
     }
-    return list.map((g, i) => ({ ...g, cor: g.outros ? COR_OUTROS : (COR_GRUPO[g.nome] || COR_ORDEM[i % COR_ORDEM.length]) }));
-  }, [rows, modo]);
-
-  // rosca
-  const R = 74, SW = 28, C = 2 * Math.PI * R, GAP = grupos.length > 1 ? 2 : 0;
-  let acc = 0;
-  const arcos = grupos.map(g => {
-    const len = total ? g.valor / total * C : 0;
-    const a = { ...g, dash:Math.max(0, len - GAP), off:-acc };
-    acc += len;
-    return a;
-  });
-  const foco = grupos.find(g => g.nome === (hover || aberto));
-
-  const pill = on => ({ border:`1px solid ${on ? P.roxo : P.lilas}`, background:on ? P.roxo : P.papel, color:on ? "#fff" : P.roxo,
-    borderRadius:100, padding:"4px 11px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" });
+    return list.map((g, i) => ({ ...g, cor: g.outros ? "#B9B4C7" : (MODOS[modo].cor?.(g.nome) || COR_ITEM[i % COR_ITEM.length]) }));
+  }, [rows, anteriores, modo]);
+  const mx = Math.max(1, ...grupos.map(g => g.valor));
+  const botao = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff",
+    border:"1px solid rgba(255,255,255,.22)", borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
 
   return (
-    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
-      <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-        <div style={{ fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>💸 Para onde foi o dinheiro · {titulo}</div>
-      </div>
-      <div style={{ padding:"14px 16px 6px", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-        <span style={{ fontSize:11, color:P.suave, fontWeight:600, marginRight:4 }}>Agrupar por</span>
-        {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={pill(modo === k)}>{m.label}</button>)}
-      </div>
+    <div style={caixaBloco}>
+      <Cabeca titulo={`💸 Para onde foi o dinheiro${titulo ? " · " + titulo : ""}`} sub={total ? `${brl(total)} em ${rows.length} gastos` : ""}>
+        {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={botao(modo === k)}>{m.label}</button>)}
+      </Cabeca>
       {!total ? <div style={{ padding:"30px 16px", textAlign:"center", fontSize:12, color:P.suave }}>Nenhum gasto lançado neste período.</div> : (
-        <div style={{ display:"flex", flexWrap:"wrap", gap:24, padding:"10px 16px 18px", alignItems:"flex-start" }}>
-          <svg viewBox="0 0 200 200" width="200" height="200" style={{ flex:"0 0 auto", margin:"0 auto" }}>
-            <g transform="rotate(-90 100 100)">
-              <circle cx="100" cy="100" r={R} fill="none" stroke={P.lilasClaro} strokeWidth={SW}/>
-              {arcos.map(a => (
-                <circle key={a.nome} cx="100" cy="100" r={R} fill="none" stroke={a.cor}
-                  strokeWidth={foco && foco.nome === a.nome ? SW + 6 : SW}
-                  strokeDasharray={`${a.dash} ${C}`} strokeDashoffset={a.off}
-                  opacity={foco && foco.nome !== a.nome ? .35 : 1}
-                  style={{ cursor:"pointer", transition:"opacity .15s, stroke-width .15s" }}
-                  onMouseEnter={() => setHover(a.nome)} onMouseLeave={() => setHover(null)}
-                  onClick={() => setAberto(x => x === a.nome ? null : a.nome)}/>
-              ))}
-            </g>
-            <text x="100" y="88" textAnchor="middle" fontSize="10" fontWeight="700" fill={P.suave} fontFamily="Montserrat, sans-serif">
-              {(foco ? foco.nome : "Total de gastos").slice(0, 22)}
-            </text>
-            <text x="100" y="108" textAnchor="middle" fontSize="15" fontWeight="900" fill={P.tinta} fontFamily="Montserrat, sans-serif">
-              {brl(foco ? foco.valor : total)}
-            </text>
-            <text x="100" y="124" textAnchor="middle" fontSize="10" fontWeight="600" fill={P.suave} fontFamily="Montserrat, sans-serif">
-              {foco ? `${(foco.valor / total * 100).toFixed(1).replace(".", ",")}% dos gastos` : `${rows.length} lançamentos`}
-            </text>
-          </svg>
-
-          <div style={{ flex:"1 1 300px", minWidth:0, display:"flex", flexDirection:"column", gap:4 }}>
+        <div style={{ padding:"14px 16px" }}>
+          <div style={{ display:"flex", gap:2, height:22 }}>
+            {grupos.map(g => (
+              <div key={g.nome} title={`${g.nome}: ${brl(g.valor)}`} onClick={() => setAberto(a => a === g.nome ? null : g.nome)}
+                style={{ width:`${g.valor / total * 100}%`, background:g.cor, borderRadius:3, cursor:"pointer", minWidth:3 }}/>
+            ))}
+          </div>
+          <div style={{ marginTop:6 }}>
             {grupos.map(g => {
-              const pct = g.valor / total * 100;
               const open = aberto === g.nome;
               return (
-                <div key={g.nome} style={{ borderRadius:10, background: open ? P.lilasClaro : hover === g.nome ? "#FAF8FF" : "transparent" }}>
-                  <div onClick={() => setAberto(open ? null : g.nome)} onMouseEnter={() => setHover(g.nome)} onMouseLeave={() => setHover(null)}
-                    style={{ padding:"8px 10px", cursor:"pointer" }}>
+                <div key={g.nome} style={{ borderBottom:`1px solid ${P.linha}`, background: open ? P.lilasClaro : "transparent", borderRadius: open ? 8 : 0 }}>
+                  <div onClick={() => setAberto(open ? null : g.nome)} style={{ padding:"7px 6px", cursor:"pointer" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12 }}>
                       <span style={{ width:10, height:10, borderRadius:3, background:g.cor, flex:"0 0 auto" }}/>
-                      <span style={{ fontWeight:700, color:P.tinta, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.nome}</span>
+                      <b style={{ fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.nome}</b>
                       <span style={{ color:P.suave, fontSize:11 }}>{g.itens.length}×</span>
-                      <span style={{ marginLeft:"auto", color:P.suave, fontSize:11, fontWeight:600 }}>{pct.toFixed(0)}%</span>
-                      <span style={{ fontWeight:800, color:P.tinta, minWidth:92, textAlign:"right" }}>{brl(g.valor)}</span>
-                      <span style={{ color:P.suave, fontSize:9, width:10 }}>{open ? "▲" : "▼"}</span>
+                      <span style={{ marginLeft:"auto", color:P.suave, fontSize:11 }}>{(g.valor / total * 100).toFixed(0)}%</span>
+                      <b style={{ minWidth:96, textAlign:"right", fontSize:12.5 }}>{brl(g.valor)}</b>
+                      {compararCom && <span style={{ minWidth:58, textAlign:"right" }}>{!g.outros && <Variacao atual={g.valor} anterior={g.anterior} bomSubir={false} curto/>}</span>}
+                      <span style={{ color:P.suave, fontSize:8, width:10 }}>{open ? "▲" : "▼"}</span>
                     </div>
-                    <div style={{ height:6, background:P.lilasClaro, borderRadius:4, marginTop:6, marginLeft:18 }}>
-                      <div style={{ height:"100%", width:`${pct}%`, background:g.cor, borderRadius:4 }}/>
+                    <div style={{ height:6, background:P.lilasClaro, borderRadius:4, margin:"5px 0 0 18px" }}>
+                      <div style={{ height:"100%", width:`${g.valor / mx * 100}%`, background:g.cor, borderRadius:4 }}/>
                     </div>
                   </div>
                   {open && (
-                    <div style={{ padding:"0 10px 10px 28px" }}>
+                    <div style={{ padding:"0 10px 8px 24px" }}>
                       {[...g.itens].sort((a, b) => b.valor - a.valor).map(r => (
-                        <div key={r.id} style={{ display:"flex", gap:8, fontSize:11, padding:"4px 0", borderTop:`1px solid ${P.linha}`, color:P.tinta }}>
-                          <span style={{ color:P.suave, width:44, flex:"0 0 auto" }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : r.mes.slice(5) + "/" + r.mes.slice(2, 4)}</span>
+                        <div key={r.id} style={{ display:"flex", gap:8, fontSize:11, padding:"4px 0", borderTop:`1px solid ${P.linha}` }}>
+                          <span style={{ color:P.suave, width:44, flex:"0 0 auto" }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : `${r.mes.slice(5)}/${r.mes.slice(2, 4)}`}</span>
                           <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.descricao || "—"}</span>
                           {r.info && <span style={{ color:P.suave }}>· {r.info}</span>}
                           <span style={{ marginLeft:"auto", fontWeight:700, whiteSpace:"nowrap" }}>{brl(r.valor)}</span>
@@ -492,8 +554,189 @@ function ParaOndeFoi({ rows, titulo }) {
               );
             })}
           </div>
+          {compararCom && <div style={{ fontSize:10.5, color:P.suave, marginTop:8 }}>▲▼ comparado com {compararCom}. Clique numa categoria para ver os gastos.</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Últimos 6 meses (receitas x gastos) ────────────────────────────────────
+function UltimosMeses({ serie, onPick }) {
+  const [hover, setHover] = useState(null);
+  const W = 560, H = 190, pl = 46, pb = 24;
+  const mx = Math.max(1000, ...serie.flatMap(d => [d.receitas, d.gastos]));
+  const passo = mx > 20000 ? 10000 : mx > 8000 ? 5000 : 2000;
+  const topo = Math.ceil(mx / passo) * passo;
+  const y = v => H - pb - v / topo * (H - pb - 14);
+  const bw = (W - pl - 6) / serie.length;
+  const grade = [];
+  for (let v = 0; v <= topo; v += passo) grade.push(v);
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="📊 Últimos 6 meses">
+        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#C9BCF0" }}>■</span> Receitas</span>
+        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#F6A15B" }}>■</span> Gastos</span>
+      </Cabeca>
+      <div style={{ padding:"10px 12px 6px", position:"relative" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Receitas e gastos dos últimos 6 meses">
+          {grade.map(v => (
+            <g key={v}>
+              <line x1={pl} x2={W} y1={y(v)} y2={y(v)} stroke="#ECE8F5"/>
+              <text x={pl - 6} y={y(v) + 3} textAnchor="end" fontSize="9.5" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{v >= 1000 ? `${v / 1000} mil` : v}</text>
+            </g>
+          ))}
+          {serie.map((d, i) => {
+            const x = pl + i * bw + bw * .18, w = bw * .3, ult = i === serie.length - 1, on = hover === i;
+            const saldo = d.receitas - d.gastos;
+            return (
+              <g key={d.mes} style={{ cursor:"pointer" }} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => onPick(d.mes)}>
+                <rect x={pl + i * bw} y={0} width={bw} height={H - pb} fill={on ? "#F5F1FD" : "transparent"}/>
+                <rect x={x} y={y(d.receitas)} width={w} height={H - pb - y(d.receitas)} rx="3" fill="#4C27A0" opacity={ult || on ? 1 : .55}/>
+                <rect x={x + w + 2} y={y(d.gastos)} width={w} height={H - pb - y(d.gastos)} rx="3" fill="#E07020" opacity={ult || on ? 1 : .55}/>
+                <text x={x + w + 1} y={H - 6} textAnchor="middle" fontSize="10.5" fontWeight={ult ? 800 : 600} fill={ult ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{d.rotulo}</text>
+                {(d.receitas || d.gastos) ? <text x={x + w + 1} y={Math.min(y(d.receitas), y(d.gastos)) - 6} textAnchor="middle" fontSize="9.5" fontWeight="700"
+                  fill={saldo >= 0 ? P.verde : P.vermelho} fontFamily="Montserrat, sans-serif">{saldo >= 0 ? "+" : "−"}{(Math.abs(saldo) / 1000).toFixed(1)}k</text> : null}
+              </g>
+            );
+          })}
+        </svg>
+        {hover !== null && (
+          <div style={{ position:"absolute", top:10, ...(hover < 3 ? { left:60 } : { right:16 }), background:P.papel, border:`1px solid ${P.linha}`,
+            borderRadius:10, padding:"8px 11px", fontSize:11, boxShadow:"0 8px 24px rgba(59,28,126,.15)", pointerEvents:"none" }}>
+            <b>{serie[hover].nome}</b>
+            <div>Receitas {brl(serie[hover].receitas)}</div>
+            <div>Gastos {brl(serie[hover].gastos)}</div>
+            <div style={{ fontWeight:700, color: serie[hover].receitas - serie[hover].gastos >= 0 ? P.verde : P.vermelho }}>Sobrou {brl(serie[hover].receitas - serie[hover].gastos)}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── De onde vem o dinheiro ─────────────────────────────────────────────────
+function DeOndeVem({ receitas }) {
+  const total = receitas.reduce((s, r) => s + r.valor, 0);
+  const sm = receitas.filter(r => r.servico === "Social Media").reduce((s, r) => s + r.valor, 0);
+  const foto = receitas.filter(r => r.servico === "Fotografia").reduce((s, r) => s + r.valor, 0);
+  const outro = total - sm - foto;
+  const por = {};
+  receitas.forEach(r => { const k = r.descricao.trim() || "(sem nome)"; por[k] = (por[k] || 0) + r.valor; });
+  const top = Object.entries(por).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const fatias = [["Social Media", sm, "#1F5FBF"], ["Fotografia", foto, "#5B2BA6"], ["Outro", outro, "#9A94AC"]].filter(f => f[1] > 0);
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="💜 De onde vem o dinheiro"/>
+      <div style={{ padding:"12px 16px" }}>
+        {!total ? <div style={{ fontSize:12, color:P.suave, textAlign:"center", padding:"10px 0" }}>Nenhuma receita lançada neste mês.</div> : <>
+          <div style={{ display:"flex", height:22, borderRadius:5, overflow:"hidden", gap:2 }}>
+            {fatias.map(([n, v, c]) => (
+              <div key={n} title={`${n}: ${brl(v)}`} style={{ width:`${v / total * 100}%`, background:c, color:"#fff", fontSize:10.5, fontWeight:700,
+                padding:"4px 8px", whiteSpace:"nowrap", overflow:"hidden" }}>{n} {(v / total * 100).toFixed(0)}%</div>
+            ))}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:5, fontSize:11, color:P.suave }}>
+            {fatias.map(([n, v]) => <span key={n}>{n}: {brl(v)}</span>)}
+          </div>
+          <div style={{ fontSize:11.5, fontWeight:800, margin:"12px 0 6px" }}>Maiores clientes do mês</div>
+          {top.map(([n, v], i) => (
+            <div key={n} style={{ display:"flex", justifyContent:"space-between", padding:"3px 0", fontSize:11.5 }}>
+              <span>{i + 1}. {n}</span><b>{brl(v)}</b>
+            </div>
+          ))}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+// ── Avisos "Fique de olho" ─────────────────────────────────────────────────
+function gerarAvisos({ gastos, anteriores, mes, hojeDia, nomeProximo }) {
+  const avisos = [];
+  const abertos = gastos.filter(g => g.status !== "pago" && g.valor > 0);
+  if (hojeDia) {
+    const atrasados = abertos.filter(g => g.dia && g.dia < hojeDia);
+    if (atrasados.length) avisos.push({ cor:P.vermelho, titulo:"Em atraso",
+      texto:`${atrasados.length} conta${atrasados.length > 1 ? "s" : ""} com dia já passado e marcada${atrasados.length > 1 ? "s" : ""} como não paga${atrasados.length > 1 ? "s" : ""}: ${brl(atrasados.reduce((s, g) => s + g.valor, 0))}` });
+  }
+  const porDia = {};
+  abertos.filter(g => g.dia && (!hojeDia || g.dia >= hojeDia)).forEach(g => { (porDia[g.dia] = porDia[g.dia] || []).push(g); });
+  const dias = Object.entries(porDia).map(([d, gs]) => ({ d:+d, gs, t:gs.reduce((s, g) => s + g.valor, 0) }));
+  const proximos = dias.filter(x => !hojeDia || x.d <= hojeDia + 7);
+  const alvo = (proximos.length ? proximos : dias).sort((a, b) => b.t - a.t)[0];
+  if (alvo) avisos.push({ cor:P.vermelho, titulo:`Vence dia ${alvo.d}`,
+    texto:`${alvo.gs.slice(0, 3).map(g => g.descricao || "sem nome").join(", ")}${alvo.gs.length > 3 ? ` e mais ${alvo.gs.length - 3}` : ""}: ${brl(alvo.t)}` });
+  const ultimas = gastos.filter(g => { const m = /(\d+)\s*\/\s*(\d+)/.exec(g.info || ""); return m && +m[1] === +m[2] && +m[2] > 1; });
+  if (ultimas.length) {
+    const t = ultimas.reduce((s, g) => s + g.valor, 0);
+    avisos.push({ cor:P.laranja, titulo:"Última parcela",
+      texto:`${ultimas.slice(0, 2).map(g => `${g.descricao} (${g.info})`).join(", ")}: sobra ${brl(t)} a partir de ${nomeProximo}` });
+  }
+  const catAtual = agrupar(gastos, "categoria"), catAnt = agrupar(anteriores, "categoria");
+  const novas = Object.values(catAtual).filter(g => g.valor > 0 && !catAnt[g.nome.toLowerCase()] && anteriores.length);
+  if (novas.length) {
+    const g = novas.sort((a, b) => b.valor - a.valor)[0];
+    avisos.push({ cor:"#6250d6", titulo:"Novo este mês", texto:`${g.nome}: ${brl(g.valor)} (${g.itens.slice(0, 3).map(i => i.descricao).join(", ")})` });
+  } else {
+    const subiu = Object.values(catAtual).map(g => ({ ...g, ant: catAnt[g.nome.toLowerCase()]?.valor || 0 }))
+      .filter(g => g.ant > 0 && g.valor - g.ant > 200 && g.valor / g.ant > 1.2).sort((a, b) => (b.valor - b.ant) - (a.valor - a.ant))[0];
+    if (subiu) avisos.push({ cor:"#6250d6", titulo:"Subiu este mês", texto:`${subiu.nome}: +${brl(subiu.valor - subiu.ant)} em relação ao mês anterior` });
+  }
+  return avisos.slice(0, 3);
+}
+
+function Avisos({ avisos }) {
+  if (!avisos.length) return null;
+  return (
+    <div className="fin-avisos">
+      {avisos.map((a, i) => (
+        <div key={i} style={{ background:P.papel, border:`1px solid ${P.linha}`, borderLeft:`4px solid ${a.cor}`, borderRadius:10, padding:"8px 12px", minWidth:0 }}>
+          <div style={{ fontSize:9.5, fontWeight:800, color:a.cor, textTransform:"uppercase", letterSpacing:".07em" }}>🔔 {a.titulo}</div>
+          <div style={{ fontSize:11.5, marginTop:3, lineHeight:1.35 }}>{a.texto}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Calendário de vencimentos (compacto) ───────────────────────────────────
+function Vencimentos({ gastos, ano, mesIdx, hojeDia }) {
+  const nDias = new Date(ano, mesIdx + 1, 0).getDate();
+  const vazio = new Date(ano, mesIdx, 1).getDay();
+  const porDia = {};
+  gastos.filter(g => g.dia && g.valor > 0).forEach(g => { (porDia[g.dia] = porDia[g.dia] || []).push(g); });
+  const aVencer = gastos.filter(g => g.status !== "pago" && (!hojeDia || !g.dia || g.dia >= hojeDia)).reduce((s, g) => s + g.valor, 0);
+  const cel = [];
+  for (let i = 0; i < vazio; i++) cel.push(<div key={"v" + i}/>);
+  for (let d = 1; d <= nDias; d++) {
+    const it = porDia[d] || [], tot = it.reduce((s, g) => s + g.valor, 0), aberto = it.some(g => g.status !== "pago");
+    const hoje = d === hojeDia;
+    cel.push(
+      <div key={d} title={it.map(g => `${g.status === "pago" ? "✓" : "●"} ${g.descricao}: ${brl(g.valor)}`).join("\n")}
+        style={{ background: aberto ? "#FFF4F4" : it.length ? "#F0FAF2" : P.papel, border: hoje ? `2px solid ${P.roxo}` : `1px solid ${P.linha}`,
+          borderRadius:7, padding:"3px 6px", minHeight:46, minWidth:0, overflow:"hidden" }}>
+        <div style={{ fontSize:10, fontWeight:700, color: hoje ? P.roxo : P.suave }}>{d}{hoje ? " · hoje" : ""}</div>
+        {it.length > 0 && <div style={{ fontSize:10.5, fontWeight:800, color: aberto ? P.vermelho : P.verde, whiteSpace:"nowrap" }}>{brl(tot)}</div>}
+        {it.slice(0, 2).map(g => (
+          <div key={g.id} style={{ fontSize:9, lineHeight:1.25, color: g.status === "pago" ? P.verde : P.vermelho, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            {g.status === "pago" ? "✓" : "●"} {g.descricao}</div>
+        ))}
+        {it.length > 2 && <div style={{ fontSize:8.5, color:P.suave }}>+{it.length - 2}</div>}
+      </div>
+    );
+  }
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo={`📅 Vencimentos de ${MESES[mesIdx].toLowerCase()}`}
+        sub={hojeDia ? `ainda vão sair ${brl(aVencer)} de hoje até o fim do mês` : `${brl(aVencer)} marcados como não pagos`}>
+        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#FFB4B4" }}>●</span> falta pagar</span>
+        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#9BE3AE" }}>✓</span> pago</span>
+      </Cabeca>
+      <div style={{ padding:"10px 12px", display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))", gap:5 }}>
+        {["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].map(s => <div key={s} style={{ fontSize:9.5, fontWeight:700, color:P.suave, textAlign:"center", textTransform:"uppercase" }}>{s}</div>)}
+        {cel}
+      </div>
     </div>
   );
 }
@@ -642,8 +885,37 @@ function FinanceiroApp({ senha, sair }) {
     const recebido = sum(r => r.secao === "receita" && r.status === "pago");
     const gastos = sum(r => r.secao !== "receita");
     const naoPago = sum(r => r.secao !== "receita" && r.status !== "pago");
-    return { receitas, recebido, gastos, naoPago, saldo: receitas - gastos };
+    const fixos = sum(r => r.secao === "fixo");
+    return { receitas, recebido, gastos, naoPago, fixos, saldo: receitas - gastos };
   }, [doMes]);
+
+  // ── análises: mês anterior, últimos 6 meses, avisos ──
+  const analise = useMemo(() => {
+    if (aba === "geral") return null;
+    const deslocar = n => { const d = new Date(ano, aba + n, 1); return { ano:d.getFullYear(), m:d.getMonth(), key:mesKey(d.getFullYear(), d.getMonth()) }; };
+    const ant = deslocar(-1), prox = deslocar(1);
+    const totais = key => {
+      const rs = rows.filter(r => r.mes === key);
+      const sum = f => rs.filter(f).reduce((s, r) => s + r.valor, 0);
+      return { receitas: sum(r => r.secao === "receita"), gastos: sum(r => r.secao !== "receita"), n: rs.length };
+    };
+    const serie = [-5, -4, -3, -2, -1, 0].map(n => {
+      const d = deslocar(n), t = totais(d.key);
+      return { mes:d.m, ano:d.ano, key:d.key, rotulo:MESES[d.m].slice(0, 3), nome:`${MESES[d.m]} ${d.ano}`, ...t };
+    });
+    const tAnt = totais(ant.key);
+    const anteriores = rows.filter(r => r.mes === ant.key && r.secao !== "receita");
+    const gastosMes = doMes.filter(r => r.secao !== "receita");
+    const hoje = new Date();
+    const hojeDia = hoje.getFullYear() === ano && hoje.getMonth() === aba ? hoje.getDate() : null;
+    const abertos = gastosMes.filter(g => g.status !== "pago" && g.valor > 0);
+    const proxima = abertos.filter(g => g.dia && (!hojeDia || g.dia >= hojeDia)).sort((a, b) => a.dia - b.dia)[0];
+    return {
+      serie, tAnt, anteriores, gastosMes, hojeDia, abertos, proxima,
+      nomeAnt: MESES[ant.m].toLowerCase(),
+      avisos: gerarAvisos({ gastos:gastosMes, anteriores, mes, hojeDia, nomeProximo: MESES[prox.m].toLowerCase() }),
+    };
+  }, [rows, doMes, aba, ano, mes]);
 
   // ── edição ──
   const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? normalize({ ...r, ...patch }) : r));
@@ -669,7 +941,7 @@ function FinanceiroApp({ senha, sair }) {
     const porSecao = Object.keys(SECTIONS).map(k => [k, lista.filter(r => r.secao === k)]).filter(([, rs]) => rs.length);
     if (!porSecao.length) return;
     try {
-      await navigator.clipboard.writeText(porSecao.map(([k, rs]) => toTSV(rs, SECTIONS[k].cols)).join("\n\n"));
+      await navigator.clipboard.writeText(porSecao.map(([k, rs]) => toTSV(rs, SECTIONS[k].copia)).join("\n\n"));
       const nomes = porSecao.map(([k, rs]) => `${rs.length} de ${SECTIONS[k].title}`).join(", ");
       setMsg(`📋 Copiado: ${nomes}. Na sua planilha, clique na célula da coluna "Dia" da primeira linha vazia e cole (Ctrl+V ou ⌘V).`
         + (porSecao.length > 1 ? " Atenção: você copiou de mais de uma tabela; elas vêm separadas por uma linha em branco." : ""));
@@ -804,7 +1076,7 @@ function FinanceiroApp({ senha, sair }) {
         </div>
       </div>
 
-      <div style={{ padding:"20px 16px 60px", maxWidth:1800, margin:"0 auto" }}>
+      <div style={{ padding:"18px 16px 60px", maxWidth:1380, margin:"0 auto" }}>
         {/* faixa do mês + ações */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
           <div style={{ background:P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
@@ -905,7 +1177,7 @@ function FinanceiroApp({ senha, sair }) {
                         <td style={td}><ChipSelect field="forma" value={r.forma} onChange={v => set({ forma:v })}/></td>
                         <td style={td}><ChipSelect field="status" value={r.status} onChange={v => set({ status:v })}/></td>
                         <td style={td}>
-                          {r.secao === "extra" && <ChipSelect field="categoria" value={r.categoria} onChange={v => set({ categoria:v })}/>}
+                          {r.secao !== "receita" && <CatSelect value={r.categoria} onChange={v => set({ categoria:v })}/>}
                           {r.secao === "receita" && <div style={{ display:"flex" }}>
                             <ChipSelect field="servico" value={r.servico} onChange={v => set({ servico:v })}/>
                             <ChipSelect field="tipo" value={r.tipo} onChange={v => set({ tipo:v })}/>
@@ -926,33 +1198,54 @@ function FinanceiroApp({ senha, sair }) {
 
         {aba === "geral" ? <Geral rows={rows} ano={ano} onPick={setAba}/> : (
           <>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12, marginBottom:20 }}>
-              <Kpi label="Receitas" value={brl(resumo.receitas)} color={P.verde}
-                sub={`20% empresa: ${brl(resumo.receitas * .2)}`}/>
-              <Kpi label="Gastos" value={brl(resumo.gastos)} color={P.vermelho}
-                sub="Fixos + variáveis + parcelas"/>
-              <Kpi label="Saldo do mês" value={<span style={{ color:resumo.saldo >= 0 ? P.verde : P.vermelho }}>{brl(resumo.saldo)}</span>}
-                color={P.roxo} sub={resumo.receitas ? `Margem ${(resumo.saldo / resumo.receitas * 100).toFixed(0)}%` : "Receitas − gastos"}/>
-              <Kpi label="Falta pagar" value={<span style={{ color:resumo.naoPago ? P.vermelho : P.tinta }}>{brl(resumo.naoPago)}</span>}
-                color={P.laranja} sub={resumo.receitas - resumo.recebido ? `A receber: ${brl(resumo.receitas - resumo.recebido)}` : "Gastos marcados como não pago"}/>
+            <div className="fin-kpis">
+              <KpiLinha label="Receitas" value={brl(resumo.receitas)}
+                variacao={<Variacao atual={resumo.receitas} anterior={analise.tAnt.receitas}/>}
+                serie={analise.serie.map(d => d.receitas)} corLinha={P.verde}/>
+              <KpiLinha label="Gastos" value={brl(resumo.gastos)}
+                variacao={<Variacao atual={resumo.gastos} anterior={analise.tAnt.gastos} bomSubir={false}/>}
+                sub={resumo.receitas ? <>fixos = <b style={{ color:P.tinta }}>{(resumo.fixos / resumo.receitas * 100).toFixed(0)}%</b> do que entrou</> : null}
+                serie={analise.serie.map(d => d.gastos)} corLinha={P.vermelho}/>
+              <KpiLinha label="Lucro do mês" value={brl(resumo.saldo)} cor={resumo.saldo >= 0 ? P.verde : P.vermelho}
+                variacao={<Variacao atual={resumo.saldo} anterior={analise.tAnt.receitas - analise.tAnt.gastos}/>}
+                sub={resumo.receitas ? `sobra ${Math.max(0, resumo.saldo / resumo.receitas * 100).toFixed(0)}% do que entrou` : null}
+                serie={analise.serie.map(d => d.receitas - d.gastos)} corLinha={P.roxo2}/>
+              <KpiLinha label="Falta pagar" value={brl(resumo.naoPago)} cor={resumo.naoPago ? P.vermelho : P.tinta}
+                variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.tinta }}>
+                  {analise.abertos.length ? `${analise.abertos.length} conta${analise.abertos.length > 1 ? "s" : ""}` : "Tudo pago ✓"}
+                  {analise.proxima ? ` · próxima: ${analise.proxima.descricao || "sem nome"} dia ${analise.proxima.dia}` : ""}</span>}
+                sub={resumo.receitas - resumo.recebido > 0 ? `a receber: ${brl(resumo.receitas - resumo.recebido)}` : null}/>
             </div>
 
-            <div style={{ marginBottom:20 }}>
-              <ParaOndeFoi key={mes} rows={doMes.filter(r => r.secao !== "receita")} titulo={titulo}/>
+            <Avisos avisos={analise.avisos}/>
+
+            <div className="fin-2col">
+              <Section secao="fixo" rows={bySec("fixo")} onEdit={edit} onAdd={() => add("fixo")} onRemove={remove}
+                onSortDia={sortDia} onCopy={() => copiar("fixo")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}
+                extra={<HeadBtn onClick={puxarFixos} title="Copia os gastos fixos do mês anterior">↻ Puxar do mês anterior</HeadBtn>}/>
+              <Section secao="receita" rows={bySec("receita")} onEdit={edit} onAdd={() => add("receita")} onRemove={remove}
+                onSortDia={sortDia} onCopy={() => copiar("receita")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}/>
+            </div>
+            <div className="fin-2col" style={{ marginTop:14 }}>
+              {["variavel", "extra"].map(s => (
+                <Section key={s} secao={s} rows={bySec(s)} onEdit={edit} onAdd={() => add(s)} onRemove={remove}
+                  onSortDia={sortDia} onCopy={() => copiar(s)} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}/>
+              ))}
             </div>
 
-            <div className="fin-cols">
-              <div style={{ display:"flex", flexDirection:"column", gap:20, minWidth:0 }}>
-                {GASTOS.map(s => (
-                  <Section key={s} secao={s} rows={bySec(s)} onEdit={edit} onAdd={() => add(s)} onRemove={remove}
-                    onSortDia={sortDia} onCopy={() => copiar(s)} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}
-                    extra={s === "fixo" && <HeadBtn onClick={puxarFixos} title="Copia os gastos fixos do mês anterior">↻ Puxar do mês anterior</HeadBtn>}/>
-                ))}
+            <div style={{ display:"flex", alignItems:"center", gap:10, margin:"26px 0 12px" }}>
+              <span style={{ fontSize:13, fontWeight:900, color:P.roxo, letterSpacing:".08em", textTransform:"uppercase" }}>📈 Análise do mês</span>
+              <span style={{ flex:1, height:1, background:P.lilas }}/>
+            </div>
+            <div className="fin-2col">
+              <ParaOndeFoi key={mes} rows={analise.gastosMes} anteriores={analise.anteriores} compararCom={analise.nomeAnt}/>
+              <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
+                <UltimosMeses serie={analise.serie} onPick={m => { const d = analise.serie.find(x => x.mes === m); if (d) { setAno(d.ano); setAba(d.mes); } }}/>
+                <DeOndeVem receitas={bySec("receita")}/>
               </div>
-              <div style={{ minWidth:0 }}>
-                <Section secao="receita" rows={bySec("receita")} onEdit={edit} onAdd={() => add("receita")} onRemove={remove}
-                  onSortDia={sortDia} onCopy={() => copiar("receita")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}/>
-              </div>
+            </div>
+            <div style={{ marginTop:14 }}>
+              <Vencimentos gastos={analise.gastosMes} ano={ano} mesIdx={aba} hojeDia={analise.hojeDia}/>
             </div>
           </>
         )}
