@@ -1,12 +1,13 @@
 // Dados do financeiro na nuvem (Upstash Redis, conectado pelo painel da Vercel).
 // Cada aparelho manda o que tem; o servidor junta com o que está guardado e devolve tudo.
 // Required env vars: VITE_APP=financeiro, FIN_SENHA e (KV_REST_API_URL + KV_REST_API_TOKEN)
-//   ou (UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN)
+//   ou STORAGE_REST_API_* ou UPSTASH_REDIS_REST_*
 import { bloquear } from "./fin-auth.js";
 import { juntar } from "./_fin-merge.js";
 
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// Aceita o prefixo escolhido ao conectar o banco na Vercel (KV, STORAGE ou o padrão do Upstash)
+const URL_ = process.env.KV_REST_API_URL || process.env.STORAGE_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const TOKEN = process.env.KV_REST_API_TOKEN || process.env.STORAGE_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const ANOS = "fin:anos", APAGADOS = "fin:apagados", ano = a => `fin:ano:${a}`;
 
 async function redis(comandos) {
