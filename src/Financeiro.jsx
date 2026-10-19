@@ -19,7 +19,30 @@ const CHIPS = {
     ["Mercado Pago", "#1F5FBF", "#FFFFFF"],
     ["Cartão", "#E8EAED", "#3C4043"],
     ["Dinheiro", "#FFF1C2", "#8A6500"],
+    ["Parcelado", "#DCE8FB", "#1F5FBF"],
     ["Outro", "#E8EAED", "#3C4043"],
+  ],
+  // Pessoal: categorias da sua planilha
+  classeCasa: [
+    ["Fixo", "#1F5FBF", "#FFFFFF"],
+    ["Parcela", "#DCE8FB", "#1F4E79"],
+    ["Extra", "#FFE9A8", "#8A6500"],
+  ],
+  classeExtra: [
+    ["pessoal", "#3E2723", "#FFFFFF"],
+    ["coisa p/ casa", "#ECECEC", "#333333"],
+  ],
+  // Pessoal: grupos do gráfico "para onde foi" — [nome, cor] (paleta categórica validada, ordem fixa)
+  grupo: [
+    ["Casa e contas", "#2a78d6"],
+    ["Carro e transporte", "#eb6834"],
+    ["Saúde", "#1baf7a"],
+    ["Coisas p/ casa", "#eda100"],
+    ["Pessoal", "#e87ba4"],
+    ["Estudos", "#008300"],
+    ["Assinaturas e celular", "#6250d6"],
+    ["Mercado e dia a dia", "#e34948"],
+    ["Outros", "#9A94AC"],
   ],
   status: [
     ["pago", "#D7EFD9", "#1E7B34", "Pago"],
@@ -55,7 +78,27 @@ const CHIPS = {
   ],
 };
 const OPTS = Object.fromEntries(Object.entries(CHIPS).map(([k, v]) => [k, v.map(o => o[0])]));
-const COR_CAT = Object.fromEntries(CHIPS.categoria);
+const COR_CAT = { ...Object.fromEntries(CHIPS.grupo), ...Object.fromEntries(CHIPS.categoria) };
+
+// Pessoal: sugere o grupo pelo nome (e pela categoria da planilha, quando ajuda)
+const REGRAS_GRUPO = [
+  ["Saúde", /sa[uú]de|m[eé]dic|dentista|farm[aá]cia|rem[eé]dio|exame|terapia|academia|psic/],
+  ["Estudos", /fies|faculdade|curso|escola|mensalidade escolar|livro|material escolar/],
+  ["Carro e transporte", /carro|seguro|combust|gasolina|etanol|ped[aá]gio|uber|[oô]nibus|passagem|ipva|licenciamento|mec[aâ]nic|estacionamento/],
+  ["Assinaturas e celular", /netflix|spotify|youtube|prime|disney|hbo|globoplay|celular|recarga|cr[eé]dito celular|icloud|assinatura|streaming/],
+  ["Mercado e dia a dia", /mercado|supermercado|katuxa|padaria|a[cç]ougue|feira|ifood|lanche|restaurante|almo[cç]o|janta|caf[eé]/],
+  ["Casa e contas", /aluguel|caixa|financiamento|condom[ií]nio|energia|\bluz\b|[aá]gua|internet|g[aá]s|ilda|diarista|iptu/],
+  ["Coisas p/ casa", /port[aã]o|placa solar|tinta|riotintas|m[oó]vel|eletro|geladeira|fog[aã]o|sof[aá]|cama|colch[aã]o|panela|reforma|constru|casa|decora/],
+  ["Pessoal", /roupa|saia|blusa|brusinha|conjunto|t[eê]nis|sapato|cabelo|unha|presente|raquete|livelo|viagem|lazer/],
+];
+function sugerirGrupo(descricao = "", classe = "") {
+  const d = descricao.toLowerCase();
+  const achou = REGRAS_GRUPO.find(([, re]) => re.test(d));
+  if (achou) return achou[0];
+  if (classe === "coisa p/ casa") return "Coisas p/ casa";
+  if (classe === "pessoal") return "Pessoal";
+  return "Outros";
+}
 
 // Sugere a categoria pelo nome do gasto (a ordem importa: "Alessa Tráfego" é equipe, não anúncio)
 const REGRAS_CAT = [
@@ -87,6 +130,8 @@ const COL = {
   forma:     { label:"Forma", w:86, kind:"chip" },
   status:    { label:"Status", w:86, kind:"chip" },
   categoria: { label:"Categoria", w:146, kind:"cat" },
+  classeCasa:  { label:"Categoria", w:96, kind:"chip" },
+  classeExtra: { label:"Categoria", w:108, kind:"chip" },
   servico:   { label:"Serviço", w:106, kind:"chip" },
   tipo:      { label:"Fotografia", w:110, kind:"chip" },
   info:      { label:"Info", w:48, kind:"text" },
@@ -100,6 +145,18 @@ const SECTIONS = {
   receita:  { title:"Receitas",          cols:["dia","descricao","valor","p80","p20","servico","tipo"], copia:["dia","descricao","valor","p80","p20","servico","tipo","forma","info"] },
 };
 const GASTOS = ["fixo","variavel","extra"];
+
+// ── Pessoal: mesma ideia, com as tabelas da sua planilha pessoal ──
+Object.assign(SECTIONS, {
+  p_fixo:  { title:"Gastos Fixos",             cols:["dia","descricao","valor","forma","status","info"],         copia:["dia","descricao","valor","forma","status","info"] },
+  p_casa:  { title:"Gastos Casa",              cols:["dia","descricao","valor","classeCasa","status","forma"],   copia:["dia","descricao","valor","classeCasa","status","forma","info"] },
+  p_extra: { title:"Parcelas e Gastos Extras", cols:["dia","descricao","valor","forma","status","classeExtra","info"], copia:["dia","descricao","valor","forma","status","classeExtra","info"] },
+});
+const ESPACOS = {
+  empresa: { nome:"Empresa", icone:"🏢", secoes:["fixo","variavel","extra","receita"] },
+  pessoal: { nome:"Pessoal", icone:"🏠", secoes:["p_fixo","p_casa","p_extra"] },
+};
+const espacoDe = secao => secao.startsWith("p_") ? "pessoal" : "empresa";
 
 const STORAGE_KEY = "aigo-financeiro-v2";
 const REVIEW_KEY = "aigo-financeiro-conferencia";   // o que a IA leu e ainda não foi salvo
@@ -167,7 +224,11 @@ function normalize(r) {
     valor: parseValor(r.valor),
     forma: pick("forma", "Pix"),
     status: r.status === "nao_pago" ? "nao_pago" : "pago",
-    categoria: secao === "receita" ? "" : (OPTS.categoria.includes(r.categoria) ? r.categoria : sugerirCategoria(r.descricao, r.categoria)),
+    categoria: secao === "receita" ? ""
+      : espacoDe(secao) === "pessoal" ? (OPTS.grupo.includes(r.categoria) ? r.categoria : sugerirGrupo(r.descricao, r.classeExtra || r.classe))
+      : (OPTS.categoria.includes(r.categoria) ? r.categoria : sugerirCategoria(r.descricao, r.categoria)),
+    classeCasa: secao === "p_casa" ? (OPTS.classeCasa.includes(r.classeCasa) ? r.classeCasa : OPTS.classeCasa.includes(r.classe) ? r.classe : "Fixo") : "",
+    classeExtra: secao === "p_extra" ? (OPTS.classeExtra.includes(r.classeExtra) ? r.classeExtra : OPTS.classeExtra.includes(r.classe) ? r.classe : "pessoal") : "",
     servico: secao === "receita" ? pick("servico", "Social Media") : "",
     tipo: secao === "receita" ? pick("tipo", "") : "",
     info: r.info || "",
@@ -293,14 +354,14 @@ function ChipSelect({ field, value, onChange }) {
 }
 
 // Categoria: quadradinho colorido + nome (mais discreto que um chip)
-function CatSelect({ value, onChange }) {
+function CatSelect({ value, onChange, lista = OPTS.categoria }) {
   return (
     <div style={{ position:"relative", display:"flex", alignItems:"center", padding:"0 4px 0 8px" }}>
       <span style={{ width:9, height:9, borderRadius:2, background:COR_CAT[value] || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
       <select className="fin-cell" value={value} onChange={e => onChange(e.target.value)}
         style={{ ...cellBase, appearance:"none", WebkitAppearance:"none", cursor:"pointer", color:P.suave,
           fontSize:10.5, fontWeight:600, paddingLeft:5, whiteSpace:"nowrap", textOverflow:"ellipsis" }}>
-        {OPTS.categoria.map(c => <option key={c} value={c}>{c}</option>)}
+        {lista.map(c => <option key={c} value={c}>{c}</option>)}
       </select>
     </div>
   );
@@ -313,7 +374,8 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const naoPago = rows.filter(r => r.status !== "pago").reduce((s, r) => s + r.valor, 0);
   const total = pago + naoPago;
   const rec = secao === "receita";   // Receitas num roxo um pouco mais claro, para separar do que sai
-  const th = { background: rec ? "#DCD0F7" : P.lilas, color:P.tinta, fontSize:10.5, fontWeight:700, padding:"5px 6px",
+  const claro = rec || secao === "p_casa";
+  const th = { background: claro ? "#DCD0F7" : P.lilas, color:P.tinta, fontSize:10.5, fontWeight:700, padding:"5px 6px",
     borderRight:`1px solid ${P.papel}`, whiteSpace:"nowrap", textAlign:"left" };
   const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0, background:P.papel };
   const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
@@ -323,7 +385,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   return (
     <div style={{ background:P.papel, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(59,28,126,.08)",
       border:`1px solid ${P.linha}` }}>
-      <div style={{ background: rec ? "#5E35B1" : P.roxo, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+      <div style={{ background: claro ? "#5E35B1" : P.roxo, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
         <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{title}</div>
         <div style={{ fontSize:11, opacity:.6 }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
@@ -370,7 +432,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
             ))}
             <tr>
               <td colSpan={cols.length + 2} style={{ padding:0 }}>
-                <button onClick={onAdd} style={{ width:"100%", border:"none", background: rec ? "#F3EEFD" : P.lilasClaro, color:P.roxo2,
+                <button onClick={onAdd} style={{ width:"100%", border:"none", background: claro ? "#F3EEFD" : P.lilasClaro, color:P.roxo2,
                   fontFamily:FONT, fontSize:11.5, fontWeight:700, padding:"6px", cursor:"pointer", textAlign:"left", paddingLeft:12 }}>
                   ＋ Adicionar linha
                 </button>
@@ -499,7 +561,7 @@ function agrupar(rows, modo) {
   return map;
 }
 
-function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom }) {
+function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, rotulo = "💸 Para onde foi o dinheiro", listaGrupos, onMudarGrupo }) {
   const [modo, setModo] = useState("categoria");
   const [aberto, setAberto] = useState(null);
   const total = rows.reduce((s, r) => s + r.valor, 0);
@@ -520,7 +582,7 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom }) {
 
   return (
     <div style={caixaBloco}>
-      <Cabeca titulo={`💸 Para onde foi o dinheiro${titulo ? " · " + titulo : ""}`} sub={total ? `${brl(total)} em ${rows.length} gastos` : ""}>
+      <Cabeca titulo={`${rotulo}${titulo ? " · " + titulo : ""}`} sub={total ? `${brl(total)} em ${rows.length} gastos` : ""}>
         {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={botao(modo === k)}>{m.label}</button>)}
       </Cabeca>
       {!total ? <div style={{ padding:"30px 16px", textAlign:"center", fontSize:12, color:P.suave }}>Nenhum gasto lançado neste período.</div> : (
@@ -558,6 +620,13 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom }) {
                           <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.descricao || "—"}</span>
                           {r.info && <span style={{ color:P.suave }}>· {r.info}</span>}
                           <span style={{ marginLeft:"auto", fontWeight:700, whiteSpace:"nowrap" }}>{brl(r.valor)}</span>
+                          {onMudarGrupo && modo === "categoria" && (
+                            <select value={r.categoria} onChange={e => onMudarGrupo(r.id, e.target.value)} onClick={e => e.stopPropagation()}
+                              title="Mudar o grupo deste gasto" style={{ fontFamily:FONT, fontSize:10.5, color:P.suave, border:`1px solid ${P.linha}`,
+                                borderRadius:6, background:P.papel, padding:"1px 4px", maxWidth:130 }}>
+                              {listaGrupos.map(g => <option key={g} value={g}>{g}</option>)}
+                            </select>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -574,11 +643,11 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom }) {
 }
 
 // ── Últimos 6 meses (receitas x gastos) ────────────────────────────────────
-function UltimosMeses({ serie, onPick }) {
+function UltimosMeses({ serie, onPick, soGastos, titulo = "📊 Últimos 6 meses" }) {
   const [hover, setHover] = useState(null);
   const W = 560, H = 190, pl = 46, pb = 24;
-  const mx = Math.max(1000, ...serie.flatMap(d => [d.receitas, d.gastos]));
-  const passo = mx > 20000 ? 10000 : mx > 8000 ? 5000 : 2000;
+  const mx = Math.max(1000, ...serie.flatMap(d => soGastos ? [d.gastos] : [d.receitas, d.gastos]));
+  const passo = mx > 20000 ? 10000 : mx > 8000 ? 5000 : mx > 3000 ? 1000 : 500;
   const topo = Math.ceil(mx / passo) * passo;
   const y = v => H - pb - v / topo * (H - pb - 14);
   const bw = (W - pl - 6) / serie.length;
@@ -586,19 +655,32 @@ function UltimosMeses({ serie, onPick }) {
   for (let v = 0; v <= topo; v += passo) grade.push(v);
   return (
     <div style={caixaBloco}>
-      <Cabeca titulo="📊 Últimos 6 meses">
-        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#C9BCF0" }}>■</span> Receitas</span>
-        <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#F6A15B" }}>■</span> Gastos</span>
-      </Cabeca>
+      {soGastos ? <Cabeca titulo={titulo} sub="total de gastos por mês"/> : (
+        <Cabeca titulo={titulo}>
+          <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#C9BCF0" }}>■</span> Receitas</span>
+          <span style={{ fontSize:10.5, fontWeight:700 }}><span style={{ color:"#F6A15B" }}>■</span> Gastos</span>
+        </Cabeca>
+      )}
       <div style={{ padding:"10px 12px 6px", position:"relative" }}>
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Receitas e gastos dos últimos 6 meses">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={soGastos ? "Gastos por mês" : "Receitas e gastos dos últimos 6 meses"}>
           {grade.map(v => (
             <g key={v}>
               <line x1={pl} x2={W} y1={y(v)} y2={y(v)} stroke="#ECE8F5"/>
               <text x={pl - 6} y={y(v) + 3} textAnchor="end" fontSize="9.5" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{v >= 1000 ? `${v / 1000} mil` : v}</text>
             </g>
           ))}
-          {serie.map((d, i) => {
+          {soGastos ? serie.map((d, i) => {
+            const x = pl + i * bw + bw * .2, w = bw * .6, ult = i === serie.length - 1, on = hover === i;
+            return (
+              <g key={d.mes} style={{ cursor:"pointer" }} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => onPick(d.mes)}>
+                <rect x={pl + i * bw} y={0} width={bw} height={H - pb} fill={on ? "#F5F1FD" : "transparent"}/>
+                <rect x={x} y={y(d.gastos)} width={w} height={H - pb - y(d.gastos)} rx="3" fill="#4C27A0" opacity={ult || on ? 1 : .55}/>
+                <text x={x + w / 2} y={H - 6} textAnchor="middle" fontSize="10.5" fontWeight={ult ? 800 : 600} fill={ult ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{d.rotulo}</text>
+                {d.gastos ? <text x={x + w / 2} y={y(d.gastos) - 6} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={P.roxo}
+                  fontFamily="Montserrat, sans-serif">{(d.gastos / 1000).toFixed(1)}k</text> : null}
+              </g>
+            );
+          }) : serie.map((d, i) => {
             const x = pl + i * bw + bw * .18, w = bw * .3, ult = i === serie.length - 1, on = hover === i;
             const saldo = d.receitas - d.gastos;
             return (
@@ -614,12 +696,13 @@ function UltimosMeses({ serie, onPick }) {
           })}
         </svg>
         {hover !== null && (
-          <div style={{ position:"absolute", top:10, ...(hover < 3 ? { left:60 } : { right:16 }), background:P.papel, border:`1px solid ${P.linha}`,
+          <div style={{ position:"absolute", top:10, ...(hover < serie.length / 2 ? { left:60 } : { right:16 }), background:P.papel, border:`1px solid ${P.linha}`,
             borderRadius:10, padding:"8px 11px", fontSize:11, boxShadow:"0 8px 24px rgba(59,28,126,.15)", pointerEvents:"none" }}>
             <b>{serie[hover].nome}</b>
+            {soGastos ? <div>Gastos {brl(serie[hover].gastos)}</div> : <>
             <div>Receitas {brl(serie[hover].receitas)}</div>
             <div>Gastos {brl(serie[hover].gastos)}</div>
-            <div style={{ fontWeight:700, color: serie[hover].receitas - serie[hover].gastos >= 0 ? P.verde : P.vermelho }}>Sobrou {brl(serie[hover].receitas - serie[hover].gastos)}</div>
+            <div style={{ fontWeight:700, color: serie[hover].receitas - serie[hover].gastos >= 0 ? P.verde : P.vermelho }}>Sobrou {brl(serie[hover].receitas - serie[hover].gastos)}</div></>}
           </div>
         )}
       </div>
@@ -753,6 +836,147 @@ function Vencimentos({ gastos, ano, mesIdx, hojeDia }) {
   );
 }
 
+// ── Pessoal: parcelas em andamento ─────────────────────────────────────────
+const parcela = r => { const m = /(\d+)\s*\/\s*(\d+)/.exec(r.info || ""); return m && +m[2] > 1 ? { n:+m[1], de:+m[2] } : null; };
+function resumoParcelas(gastos) {
+  const ps = gastos.map(r => ({ r, p: parcela(r) })).filter(x => x.p && x.r.valor > 0);
+  return {
+    lista: ps,
+    falta: ps.reduce((s, { r, p }) => s + r.valor * Math.max(0, p.de - p.n), 0),
+    terminam: ps.filter(({ p }) => p.n >= p.de).length,
+  };
+}
+function ParcelasAndamento({ gastos }) {
+  const { lista, falta } = resumoParcelas(gastos);
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="🧾 Parcelas em andamento" sub={lista.length ? `ainda faltam ${brl(falta)} no total` : ""}/>
+      <div style={{ padding:"8px 16px" }}>
+        {!lista.length ? <div style={{ fontSize:12, color:P.suave, textAlign:"center", padding:"14px 0" }}>Nenhuma parcela neste mês. Escreva na Info no formato 3/10.</div> :
+          lista.sort((a, b) => (b.r.valor * (b.p.de - b.p.n)) - (a.r.valor * (a.p.de - a.p.n))).map(({ r, p }) => (
+            <div key={r.id} style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 80px 110px", gap:8, alignItems:"center", padding:"5px 0",
+              borderBottom:`1px solid ${P.linha}`, fontSize:11.5 }}>
+              <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}><b style={{ fontWeight:600 }}>{r.descricao}</b> <span style={{ color:P.suave }}>· {p.n}/{p.de}</span></span>
+              <div title={`${p.n} de ${p.de} parcelas`} style={{ height:6, background:P.lilasClaro, borderRadius:4 }}>
+                <div style={{ height:"100%", width:`${Math.min(100, p.n / p.de * 100)}%`, background:P.roxo2, borderRadius:4 }}/>
+              </div>
+              <span style={{ textAlign:"right", color: p.n >= p.de ? P.verde : P.suave, fontWeight: p.n >= p.de ? 700 : 500 }}>
+                {p.n >= p.de ? "✓ última" : `falta ${brl(r.valor * (p.de - p.n))}`}</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Pessoal: tela do mês ───────────────────────────────────────────────────
+function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia, copiar, sel, toggleSel, toggleAll, destaque, puxarFixos, setAno, setAba, mudarGrupo }) {
+  const gastos = analise.gastosMes;
+  const total = gastos.reduce((s, r) => s + r.valor, 0);
+  const pago = gastos.filter(r => r.status === "pago").reduce((s, r) => s + r.valor, 0);
+  const casa = bySec("p_casa").reduce((s, r) => s + r.valor, 0);
+  const parc = resumoParcelas(gastos);
+  const pagas = gastos.filter(r => r.status === "pago").length;
+  const props = s => ({ secao:s, rows:bySec(s), onEdit:edit, onAdd:() => add(s), onRemove:remove, onSortDia:sortDia, onCopy:() => copiar(s),
+    sel, onToggle:toggleSel, onToggleAll:toggleAll, destaque });
+  const puxar = s => <HeadBtn onClick={() => puxarFixos(s)} title="Copia do mês anterior">↻ Puxar do mês anterior</HeadBtn>;
+  return (
+    <>
+      <div className="fin-kpis">
+        <KpiLinha label="Gastos do mês" value={brl(total)}
+          variacao={<Variacao atual={total} anterior={analise.tAnt.gastos} bomSubir={false}/>}
+          sub={total ? <>casa = <b style={{ color:P.tinta }}>{(casa / total * 100).toFixed(0)}%</b> dos gastos</> : null}
+          serie={analise.serie.map(d => d.gastos)} corLinha={P.roxo2}/>
+        <KpiLinha label="Já pago" value={brl(pago)} cor={P.verde}
+          variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{pagas} de {gastos.length} contas</span>}/>
+        <KpiLinha label="Falta pagar" value={brl(total - pago)} cor={total - pago ? P.vermelho : P.tinta}
+          variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.tinta }}>
+            {analise.abertos.length ? `${analise.abertos.length} conta${analise.abertos.length > 1 ? "s" : ""}` : "Tudo pago ✓"}
+            {analise.proxima ? ` · próxima: ${analise.proxima.descricao || "sem nome"} dia ${analise.proxima.dia}` : ""}</span>}/>
+        <KpiLinha label="Parcelas em aberto" value={brl(parc.falta)}
+          variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>
+            {parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}{parc.terminam ? ` · ${parc.terminam} termina${parc.terminam > 1 ? "m" : ""} este mês` : ""}</span>}/>
+      </div>
+
+      <Avisos avisos={analise.avisos}/>
+
+      <div className="fin-2col">
+        <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
+          <Section {...props("p_fixo")} extra={puxar("p_fixo")}/>
+          <Section {...props("p_extra")}/>
+        </div>
+        <Section {...props("p_casa")} extra={puxar("p_casa")}/>
+      </div>
+
+      <div style={{ display:"flex", alignItems:"center", gap:10, margin:"26px 0 12px" }}>
+        <span style={{ fontSize:13, fontWeight:900, color:P.roxo, letterSpacing:".08em", textTransform:"uppercase" }}>📈 Análise do mês</span>
+        <span style={{ flex:1, height:1, background:P.lilas }}/>
+      </div>
+      <div className="fin-2col">
+        <ParaOndeFoi key={mes} rows={gastos} anteriores={analise.anteriores} compararCom={analise.nomeAnt}
+          rotulo="💸 Para onde foi o meu dinheiro" listaGrupos={OPTS.grupo} onMudarGrupo={mudarGrupo}/>
+        <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
+          <ParcelasAndamento gastos={gastos}/>
+          <UltimosMeses serie={analise.serie} soGastos onPick={m => { const d = analise.serie.find(x => x.mes === m); if (d) { setAno(d.ano); setAba(d.mes); } }}/>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Pessoal: aba Geral (ano) ───────────────────────────────────────────────
+function GeralPessoal({ rows, ano, onPick }) {
+  const doAno = rows.filter(r => r.mes.startsWith(`${ano}-`));
+  const data = MESES.map((nome, m) => {
+    const rs = doAno.filter(r => r.mes === mesKey(ano, m));
+    const sum = s => rs.filter(r => r.secao === s).reduce((t, r) => t + r.valor, 0);
+    const fixo = sum("p_fixo"), casa = sum("p_casa"), extra = sum("p_extra");
+    return { m, mes:m, ano, nome, rotulo:nome.slice(0, 3), fixo, casa, extra, gastos: fixo + casa + extra, receitas:0, vazio: !rs.length };
+  });
+  const tot = k => data.reduce((s, d) => s + d[k], 0);
+  const comDados = data.filter(d => !d.vazio);
+  const maisCaro = [...comDados].sort((a, b) => b.gastos - a.gastos)[0];
+  const th = { background:P.lilas, fontSize:11, fontWeight:700, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
+  const td = { fontSize:12, padding:"7px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div className="fin-kpis">
+        <KpiLinha label={`Gastos em ${ano}`} value={brl(tot("gastos"))} variacao={<span style={{ fontSize:10.5, color:P.suave, fontWeight:700 }}>{comDados.length} meses lançados</span>}/>
+        <KpiLinha label="Média por mês" value={brl(comDados.length ? tot("gastos") / comDados.length : 0)} variacao={null}/>
+        <KpiLinha label="Mês mais caro" value={maisCaro ? maisCaro.nome : "—"} variacao={maisCaro ? <span style={{ fontSize:10.5, color:P.suave, fontWeight:700 }}>{brl(maisCaro.gastos)}</span> : null}/>
+        <KpiLinha label="Casa no ano" value={brl(tot("casa"))} variacao={tot("gastos") ? <span style={{ fontSize:10.5, color:P.suave, fontWeight:700 }}>{(tot("casa") / tot("gastos") * 100).toFixed(0)}% dos gastos</span> : null}/>
+      </div>
+      <div className="fin-2col">
+        <ParaOndeFoi rows={doAno} rotulo="💸 Para onde foi o meu dinheiro" titulo={`${ano}`}/>
+        <UltimosMeses serie={data} soGastos titulo={`📊 Gastos por mês · ${ano}`} onPick={m => onPick(m)}/>
+      </div>
+      <div style={caixaBloco}>
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:620, fontFamily:FONT, color:P.tinta }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign:"left" }}>Mês</th><th style={th}>Gastos fixos</th><th style={th}>Gastos casa</th>
+              <th style={th}>Parcelas e extras</th><th style={th}>Total</th>
+            </tr></thead>
+            <tbody>
+              {data.map(d => (
+                <tr key={d.m} className="fin-row" onClick={() => onPick(d.m)} style={{ cursor:"pointer", opacity: d.vazio ? .45 : 1 }}>
+                  <td style={{ ...td, textAlign:"left", fontWeight:700 }}>{d.nome}</td>
+                  <td style={td}>{brl(d.fixo)}</td><td style={td}>{brl(d.casa)}</td><td style={td}>{brl(d.extra)}</td>
+                  <td style={{ ...td, fontWeight:800 }}>{brl(d.gastos)}</td>
+                </tr>
+              ))}
+              <tr style={{ background:P.lilasClaro }}>
+                <td style={{ ...td, textAlign:"left", fontWeight:800 }}>Total</td>
+                {["fixo","casa","extra","gastos"].map(k => <td key={k} style={{ ...td, fontWeight:800 }}>{brl(tot(k))}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Aba "Geral" (resumo do ano) ────────────────────────────────────────────
 function Geral({ rows, ano, onPick }) {
   const [hover, setHover] = useState(null);
@@ -858,6 +1082,9 @@ function FinanceiroApp({ senha, sair }) {
   const [rows, setRows] = useState(load);
   const [ano, setAno] = useState(now.getFullYear());
   const [aba, setAba] = useState(now.getMonth());           // 0-11 ou "geral"
+  const [espaco, setEspaco] = useState(() => { try { return localStorage.getItem("aigo-fin-espaco") === "pessoal" ? "pessoal" : "empresa"; } catch { return "empresa"; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-espaco", espaco); } catch {} }, [espaco]);
+  const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
   const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
   const [sel, setSel] = useState(() => new Set());
@@ -941,7 +1168,8 @@ function FinanceiroApp({ senha, sair }) {
   }, []);
 
   const mes = aba === "geral" ? null : mesKey(ano, aba);
-  const doMes = useMemo(() => rows.filter(r => r.mes === mes), [rows, mes]);
+  const rowsEsp = useMemo(() => rows.filter(r => ESPACOS[espaco].secoes.includes(r.secao)), [rows, espaco]);
+  const doMes = useMemo(() => rowsEsp.filter(r => r.mes === mes), [rowsEsp, mes]);
   const bySec = s => doMes.filter(r => r.secao === s);
 
   const resumo = useMemo(() => {
@@ -960,7 +1188,7 @@ function FinanceiroApp({ senha, sair }) {
     const deslocar = n => { const d = new Date(ano, aba + n, 1); return { ano:d.getFullYear(), m:d.getMonth(), key:mesKey(d.getFullYear(), d.getMonth()) }; };
     const ant = deslocar(-1), prox = deslocar(1);
     const totais = key => {
-      const rs = rows.filter(r => r.mes === key);
+      const rs = rowsEsp.filter(r => r.mes === key);
       const sum = f => rs.filter(f).reduce((s, r) => s + r.valor, 0);
       return { receitas: sum(r => r.secao === "receita"), gastos: sum(r => r.secao !== "receita"), n: rs.length };
     };
@@ -969,7 +1197,7 @@ function FinanceiroApp({ senha, sair }) {
       return { mes:d.m, ano:d.ano, key:d.key, rotulo:MESES[d.m].slice(0, 3), nome:`${MESES[d.m]} ${d.ano}`, ...t };
     });
     const tAnt = totais(ant.key);
-    const anteriores = rows.filter(r => r.mes === ant.key && r.secao !== "receita");
+    const anteriores = rowsEsp.filter(r => r.mes === ant.key && r.secao !== "receita");
     const gastosMes = doMes.filter(r => r.secao !== "receita");
     const hoje = new Date();
     const hojeDia = hoje.getFullYear() === ano && hoje.getMonth() === aba ? hoje.getDate() : null;
@@ -980,7 +1208,7 @@ function FinanceiroApp({ senha, sair }) {
       nomeAnt: MESES[ant.m].toLowerCase(),
       avisos: gerarAvisos({ gastos:gastosMes, anteriores, mes, hojeDia, nomeProximo: MESES[prox.m].toLowerCase() }),
     };
-  }, [rows, doMes, aba, ano, mes]);
+  }, [rowsEsp, doMes, aba, ano, mes]);
 
   // ── edição ──
   const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? marcar(normalize({ ...r, ...patch })) : r));
@@ -994,15 +1222,16 @@ function FinanceiroApp({ senha, sair }) {
   };
   const sortDia = () => setRows(sortRows);
 
-  function puxarFixos() {
+  function puxarFixos(secao = "fixo") {
     const prev = aba === 0 ? mesKey(ano - 1, 11) : mesKey(ano, aba - 1);
-    const atuais = new Set(bySec("fixo").map(r => r.descricao.trim().toLowerCase()));
-    const novos = rows.filter(r => r.mes === prev && r.secao === "fixo" && !atuais.has(r.descricao.trim().toLowerCase()))
+    const atuais = new Set(bySec(secao).map(r => r.descricao.trim().toLowerCase()));
+    const novos = rows.filter(r => r.mes === prev && r.secao === secao && !atuais.has(r.descricao.trim().toLowerCase()))
       .map(r => marcar(normalize({ ...r, id: uid(), mes, status:"nao_pago", disp:"", ord:0 })));
-    if (!novos.length) { setMsg("⚠️ Nada para puxar: o mês anterior não tem gastos fixos (ou eles já estão aqui)."); return; }
+    if (!novos.length) { setMsg(`⚠️ Nada para puxar: o mês anterior não tem ${SECTIONS[secao].title.toLowerCase()} (ou eles já estão aqui).`); return; }
     setRows(rs => sortRows([...rs, ...novos]));
-    setMsg(`✅ ${novos.length} gastos fixos copiados do mês anterior, todos como "Não pago".`);
+    setMsg(`✅ ${novos.length} ${SECTIONS[secao].title.toLowerCase()} copiados do mês anterior, todos como "Não pago".`);
   }
+
 
   async function copiarLinhas(lista) {
     const porSecao = Object.keys(SECTIONS).map(k => [k, lista.filter(r => r.secao === k)]).filter(([, rs]) => rs.length);
@@ -1044,13 +1273,14 @@ function FinanceiroApp({ senha, sair }) {
       const images = await Promise.all(files.map(f => compressImage(f, files.length)));
       const resp = await fetch("/api/ler-financeiro", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: OPTS }),
+        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: OPTS, espaco }),
       });
       if (resp.status === 413) throw new Error("Imagens muito grandes. Tente com menos prints por vez.");
       if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
-      const found = (out.lancamentos || []).map(t => fromAI(t, mes || mesKey(ano, now.getMonth())))
+      const found = (out.lancamentos || []).map(t => fromAI(pessoal && !String(t.secao).startsWith("p_") ? { ...t, secao: t.secao === "fixo" ? "p_fixo" : "p_extra" }
+        : !pessoal && String(t.secao).startsWith("p_") ? { ...t, secao:"variavel" } : t, mes || mesKey(ano, now.getMonth())))
         .filter(r => r.descricao.trim() || r.valor > 0);
       if (!found.length) setMsg("⚠️ Não encontrei lançamentos nesses prints. Adicione a linha manualmente.");
       else {
@@ -1069,10 +1299,10 @@ function FinanceiroApp({ senha, sair }) {
     setRows(rs => sortRows([...rs, ...novos]));
     setDestaque(new Set(novos.map(r => r.id)));
     const first = novos[0];
-    if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); }
+    if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); setEspaco(espacoDe(first.secao)); }
     const porMes = {};
     novos.forEach(r => { const [y, m] = r.mes.split("-"); const k = `${MESES[+m - 1]} ${y}`; porMes[k] = (porMes[k] || 0) + 1; });
-    const onde = Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
+    const onde = (first ? `${ESPACOS[espacoDe(first.secao)].icone} ` : "") + Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
     if (novos.length) setHistorico(h => [{ id: uid(), quando: new Date().toISOString(), ids: novos.map(r => r.id), onde,
       mes: novos[0].mes }, ...h].slice(0, 15));
     setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
@@ -1082,6 +1312,8 @@ function FinanceiroApp({ senha, sair }) {
 
   function verImportacao(h) {
     const [y, m] = h.mes.split("-"); setAno(+y); setAba(+m - 1);
+    const r = rows.find(x => h.ids.includes(x.id));
+    if (r) setEspaco(espacoDe(r.secao));
     setDestaque(new Set(h.ids));
   }
 
@@ -1124,7 +1356,15 @@ function FinanceiroApp({ senha, sair }) {
       <div style={{ background:P.papel, borderBottom:`1px solid ${P.linha}` }}>
         <div className="fin-top">
           <div style={{ fontWeight:900, fontSize:18, color:P.roxo }}>ai<span style={{ color:P.laranja }}>.go</span></div>
-          <div className="fin-nome" style={{ fontWeight:700, fontSize:15 }}>Financeiro Empresa</div>
+          <div className="fin-nome" style={{ fontWeight:700, fontSize:15 }}>Financeiro</div>
+          <div role="tablist" aria-label="Empresa ou pessoal" style={{ display:"inline-flex", background:P.lilasClaro, borderRadius:100, padding:3 }}>
+            {Object.entries(ESPACOS).map(([k, e]) => (
+              <button key={k} role="tab" aria-selected={espaco === k} onClick={() => { setEspaco(k); setSel(new Set()); }}
+                style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12, padding:"5px 13px", borderRadius:100, whiteSpace:"nowrap",
+                  background: espaco === k ? P.papel : "transparent", color: espaco === k ? P.roxo : P.suave, fontWeight: espaco === k ? 800 : 600,
+                  boxShadow: espaco === k ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>{e.icone} {e.nome}</button>
+            ))}
+          </div>
           <div style={{ display:"flex", alignItems:"center", gap:4, marginLeft:4 }}>
             <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>‹</button>
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
@@ -1153,8 +1393,8 @@ function FinanceiroApp({ senha, sair }) {
       <div style={{ padding:"18px 16px 60px", maxWidth:1380, margin:"0 auto" }}>
         {/* faixa do mês + ações */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
-          <div style={{ background:P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
-            letterSpacing:".1em", textTransform:"uppercase" }}>{titulo}</div>
+          <div style={{ background: pessoal ? "#5B2BA6" : P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
+            letterSpacing:".1em", textTransform:"uppercase" }}>{titulo}{pessoal ? " · Pessoal" : ""}</div>
           <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
             <Btn primary onClick={() => fileRef.current?.click()} disabled={reading}>{reading ? "⏳ Lendo..." : "📸 Enviar prints"}</Btn>
           </div>
@@ -1166,7 +1406,7 @@ function FinanceiroApp({ senha, sair }) {
           onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
           style={{ border:`2px dashed ${drag ? P.roxo2 : P.lilas}`, background: drag ? P.lilasClaro : P.papel, borderRadius:12,
             padding:"14px 16px", textAlign:"center", cursor:"pointer", marginBottom:12, fontSize:12, color:P.suave }}>
-          <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints aqui"}</b> · PIX, comprovantes, extratos, faturas · a IA separa em Fixos, Variáveis, Parcelas e Receitas
+          <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints aqui"}</b> · PIX, comprovantes, extratos, faturas · {pessoal ? "a IA separa em Fixos, Casa e Parcelas e extras" : "a IA separa em Fixos, Variáveis, Parcelas e Receitas"}
         </div>
 
         {msg && (
@@ -1236,7 +1476,7 @@ function FinanceiroApp({ senha, sair }) {
                         <td style={td}>
                           <select className="fin-cell" value={r.secao} onChange={e => set({ secao:e.target.value })}
                             style={{ ...cellBase, fontWeight:700, color:P.roxo, cursor:"pointer" }}>
-                            {Object.entries(SECTIONS).map(([k, s]) => <option key={k} value={k}>{s.title}</option>)}
+                            {Object.entries(SECTIONS).filter(([k]) => ESPACOS[espacoDe(r.secao)].secoes.includes(k)).map(([k, s]) => <option key={k} value={k}>{s.title}</option>)}
                           </select>
                         </td>
                         <td style={td}>
@@ -1251,7 +1491,9 @@ function FinanceiroApp({ senha, sair }) {
                         <td style={td}><ChipSelect field="forma" value={r.forma} onChange={v => set({ forma:v })}/></td>
                         <td style={td}><ChipSelect field="status" value={r.status} onChange={v => set({ status:v })}/></td>
                         <td style={td}>
-                          {r.secao !== "receita" && <CatSelect value={r.categoria} onChange={v => set({ categoria:v })}/>}
+                          {r.secao === "p_casa" && <ChipSelect field="classeCasa" value={r.classeCasa} onChange={v => set({ classeCasa:v })}/>}
+                          {r.secao === "p_extra" && <ChipSelect field="classeExtra" value={r.classeExtra} onChange={v => set({ classeExtra:v })}/>}
+                          {r.secao !== "receita" && <CatSelect value={r.categoria} lista={espacoDe(r.secao) === "pessoal" ? OPTS.grupo : OPTS.categoria} onChange={v => set({ categoria:v })}/>}
                           {r.secao === "receita" && <div style={{ display:"flex" }}>
                             <ChipSelect field="servico" value={r.servico} onChange={v => set({ servico:v })}/>
                             <ChipSelect field="tipo" value={r.tipo} onChange={v => set({ tipo:v })}/>
@@ -1270,7 +1512,10 @@ function FinanceiroApp({ senha, sair }) {
           </div>
         )}
 
-        {aba === "geral" ? <Geral rows={rows} ano={ano} onPick={setAba}/> : (
+        {aba === "geral" ? (pessoal ? <GeralPessoal rows={rowsEsp} ano={ano} onPick={setAba}/> : <Geral rows={rowsEsp} ano={ano} onPick={setAba}/>) : pessoal ? (
+          <MesPessoal {...{ ano, aba, mes, bySec, analise, edit, add, remove, sortDia, copiar, sel, toggleSel, toggleAll, destaque, puxarFixos, setAno, setAba,
+            mudarGrupo: (id, g) => edit(id, { categoria:g }) }}/>
+        ) : (
           <>
             <div className="fin-kpis">
               <KpiLinha label="Receitas" value={brl(resumo.receitas)}
@@ -1296,7 +1541,7 @@ function FinanceiroApp({ senha, sair }) {
             <div className="fin-2col">
               <Section secao="fixo" rows={bySec("fixo")} onEdit={edit} onAdd={() => add("fixo")} onRemove={remove}
                 onSortDia={sortDia} onCopy={() => copiar("fixo")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}
-                extra={<HeadBtn onClick={puxarFixos} title="Copia os gastos fixos do mês anterior">↻ Puxar do mês anterior</HeadBtn>}/>
+                extra={<HeadBtn onClick={() => puxarFixos("fixo")} title="Copia os gastos fixos do mês anterior">↻ Puxar do mês anterior</HeadBtn>}/>
               <Section secao="receita" rows={bySec("receita")} onEdit={edit} onAdd={() => add("receita")} onRemove={remove}
                 onSortDia={sortDia} onCopy={() => copiar("receita")} sel={sel} onToggle={toggleSel} onToggleAll={toggleAll} destaque={destaque}/>
             </div>
