@@ -80,7 +80,7 @@ PRINT DE PLANILHA/TABELA (linhas com colunas como Dia, Descrição/Gastos Fixos,
 Classifique cada lançamento em uma "secao":
 - "receita": dinheiro que ENTROU (pagamento de cliente, sinal de ensaio, mensalidade etc.)
 - "fixo": gasto fixo mensal (salários, contador, FGTS, INSS, DAS, internet, água, energia, aluguel, assinaturas como Adobe, Canva, Capcut, iCloud, Google Drive, site, pró-labore)
-- "extra": compras parceladas, investimentos, viagens, combustível, pedágio, alimentação, mercado, despesas avulsas
+- "extra": compras parceladas, investimentos, viagens, combustível/abastecimento (ex.: "ABASTECE AI", posto, Shell, Ipiranga), pedágio, alimentação, mercado, despesas avulsas. Abastecimento e posto SEMPRE são "extra", nunca "variavel"
 - "variavel": outros gastos que variam no mês (anúncios, empréstimo, freelas, consórcio, Facebook Ads etc.)
 
 Para cada lançamento retorne:
@@ -91,7 +91,7 @@ Para cada lançamento retorne:
 - "forma": conta/forma usada, uma destas: ${list("forma")}
 - "status": "pago" se já foi efetivado, "nao_pago" se é boleto/fatura a vencer
 - "info": observação curta (ex.: "parcelado", "3/10" para parcela, "hora extra") ou string vazia
-- "categoria": para todo GASTO (fixo, variavel, extra), a mais adequada destas: ${list("categoria")}. Guia: salários, pró-labore e pagamentos de pessoas da equipe = "Equipe e salários"; FGTS, INSS, DAS, contador = "Impostos e encargos"; aluguel, água, energia, internet = "Estrutura do estúdio"; Adobe, Canva, Capcut, iCloud, Google Drive, site = "Ferramentas e assinaturas"; empréstimo, consórcio, financiamento = "Dívidas e financiamentos"; compra de equipamentos/móveis e investimentos = "Investimentos"; anúncios, Facebook/Meta Ads = "Marketing e anúncios"; combustível, pedágio, gastos em Maringá ou viagens = "Maringá e viagens"; se nada servir, "Outros". Para receitas use string vazia
+- "categoria": para todo GASTO (fixo, variavel, extra), a mais adequada destas: ${list("categoria")}. Guia: salários, pró-labore e pagamentos de pessoas da equipe = "Equipe e salários"; FGTS, INSS, DAS, contador = "Impostos e encargos"; aluguel, água, energia, internet = "Estrutura do estúdio"; Adobe, Canva, Capcut, iCloud, Google Drive, site = "Ferramentas e assinaturas"; empréstimo, consórcio, financiamento = "Dívidas e financiamentos"; compra de equipamentos/móveis e investimentos = "Investimentos"; anúncios, Facebook/Meta Ads = "Marketing e anúncios"; combustível, abastecimento, posto, pedágio, gastos em Maringá ou viagens = "Maringá e viagens"; se nada servir, "Outros". Para receitas use string vazia
 - "servico": só para "receita", uma destas: ${list("servico")}; senão string vazia
 - "tipo": só para "receita", uma destas: ${list("tipo")}; senão string vazia
 

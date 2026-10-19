@@ -84,7 +84,7 @@ const COR_CAT = { ...Object.fromEntries(CHIPS.grupo), ...Object.fromEntries(CHIP
 const REGRAS_GRUPO = [
   ["Saúde", /sa[uú]de|m[eé]dic|dentista|farm[aá]cia|rem[eé]dio|exame|terapia|academia|psic/],
   ["Estudos", /fies|faculdade|curso|escola|mensalidade escolar|livro|material escolar/],
-  ["Carro e transporte", /carro|seguro|combust|gasolina|etanol|ped[aá]gio|uber|[oô]nibus|passagem|ipva|licenciamento|mec[aâ]nic|estacionamento/],
+  ["Carro e transporte", /carro|seguro|combust|abastec|\bposto\b|gasolina|etanol|ped[aá]gio|uber|[oô]nibus|passagem|ipva|licenciamento|mec[aâ]nic|estacionamento/],
   ["Assinaturas e celular", /netflix|spotify|youtube|prime|disney|hbo|globoplay|celular|recarga|cr[eé]dito celular|icloud|assinatura|streaming/],
   ["Mercado e dia a dia", /mercado|supermercado|katuxa|padaria|a[cç]ougue|feira|ifood|lanche|restaurante|almo[cç]o|janta|caf[eé]/],
   ["Casa e contas", /aluguel|caixa|financiamento|condom[ií]nio|energia|\bluz\b|[aá]gua|internet|g[aá]s|ilda|diarista|iptu/],
@@ -102,7 +102,7 @@ function sugerirGrupo(descricao = "", classe = "") {
 
 // Sugere a categoria pelo nome do gasto (a ordem importa: "Alessa Tráfego" é equipe, não anúncio)
 const REGRAS_CAT = [
-  ["Maringá e viagens", /maring|ped[aá]gio|combust|gasolina|etanol|uber|viagem|hotel|passagem/],
+  ["Maringá e viagens", /maring|ped[aá]gio|combust|abastec|\bposto\b|gasolina|etanol|uber|viagem|hotel|passagem/],
   ["Impostos e encargos", /\bfgts\b|\binss\b|\bdas\b|contador|contabil|imposto|\biss\b|darf|simples nacional|irpf|tributo/],
   ["Dívidas e financiamentos", /empr[eé]stimo|cons[oó]rcio|financiamento|juros/],
   ["Equipe e salários", /sal[aá]rio|pr[oó][ -]?labore|alessa|kamilly|mikaelly|ilda|freela|funcion|equipe|vale|f[eé]rias|13º|décimo/],
@@ -381,6 +381,26 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
   const caixa = { width:14, height:14, cursor:"pointer", accentColor:P.roxo2 };
   const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFF6D5" } : {};
+  // Marcar várias linhas arrastando o dedo/mouse pelos quadradinhos (ou Shift + clique)
+  const arrasto = useRef(null), ultimo = useRef(null);
+  const faixa = (a, b) => rows.slice(Math.min(a, b), Math.max(a, b) + 1).map(r => r.id);
+  function inicioMarcar(e, i) {
+    if (e.button > 0) return;
+    e.preventDefault();
+    const alvo = !sel.has(rows[i].id);
+    if (e.shiftKey && ultimo.current != null && ultimo.current < rows.length) onToggleAll(faixa(ultimo.current, i), true);
+    else onToggleAll([rows[i].id], alvo);
+    ultimo.current = i;
+    arrasto.current = { alvo, ini:i };
+    const mover = ev => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.(`[data-marcar="${secao}"]`);
+      if (el && arrasto.current) onToggleAll(faixa(arrasto.current.ini, +el.dataset.idx), arrasto.current.alvo);
+    };
+    const fim = () => { arrasto.current = null; window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", fim); window.removeEventListener("pointercancel", fim); };
+    window.addEventListener("pointermove", mover);
+    window.addEventListener("pointerup", fim);
+    window.addEventListener("pointercancel", fim);
+  }
 
   return (
     <div style={{ background:P.papel, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(59,28,126,.08)",
@@ -406,10 +426,12 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {rows.map((r, i) => (
               <tr key={r.id} className="fin-row">
-                <td style={{ ...td, textAlign:"center", ...fundo(r) }}>
-                  <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} style={caixa}/>
+                <td data-marcar={secao} data-idx={i} onPointerDown={e => inicioMarcar(e, i)} title="Arraste para marcar várias linhas"
+                  style={{ ...td, textAlign:"center", cursor:"pointer", touchAction:"none", userSelect:"none", WebkitUserSelect:"none", ...fundo(r) }}>
+                  <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} aria-label="Selecionar linha"
+                    style={{ ...caixa, pointerEvents:"none" }}/>
                 </td>
                 {cols.map(c => {
                   const col = COL[c];
@@ -1259,6 +1281,22 @@ function FinanceiroApp({ senha, sair }) {
     setSel(new Set());
   }
 
+  // Mudar várias linhas de uma vez (Forma, Status, Categoria, Mover para)
+  function emLote(patchDe, aviso) {
+    const ids = new Set(selecionados.map(r => r.id));
+    setRows(rs => sortRows(rs.map(r => ids.has(r.id) ? marcar(normalize({ ...r, ...patchDe(r) })) : r)));
+    setDestaque(ids);
+    setMsg(`✅ ${aviso} em ${ids.size} lançamento${ids.size > 1 ? "s" : ""}.`);
+  }
+  function moverPara(secao) {
+    const outro = espacoDe(secao) !== espaco;
+    emLote(() => ({ secao }), `Movido para ${SECTIONS[secao].title}${outro ? ` (${ESPACOS[espacoDe(secao)].icone} ${ESPACOS[espacoDe(secao)].nome})` : ""}`);
+    if (outro) setSel(new Set());
+  }
+  const comCategoria = selecionados.filter(r => r.secao !== "receita");
+  const listaCatLote = comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "pessoal") ? OPTS.grupo
+    : comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "empresa") ? OPTS.categoria : null;
+
   // limpa a seleção ao trocar de mês/ano
   useEffect(() => { setSel(new Set()); }, [aba, ano]);
 
@@ -1580,19 +1618,52 @@ function FinanceiroApp({ senha, sair }) {
       </div>
 
       {selecionados.length > 0 && (
-        <div style={{ position:"fixed", left:"50%", bottom:16, transform:"translateX(-50%)", zIndex:20, maxWidth:"calc(100% - 32px)",
-          background:P.roxo, color:"#fff", borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", gap:8,
+        <div style={{ position:"fixed", left:12, right:12, bottom:12, margin:"0 auto", width:"fit-content", zIndex:20,
+          background:P.roxo, color:"#fff", borderRadius:14, padding:"10px 12px 10px 16px", display:"flex", alignItems:"center", gap:7, justifyContent:"center",
           flexWrap:"wrap", boxShadow:"0 10px 30px rgba(59,28,126,.35)", fontSize:13 }}>
           <b style={{ marginRight:6 }}>{selecionados.length} selecionado{selecionados.length > 1 ? "s" : ""}</b>
           <button onClick={() => copiarLinhas(selecionados)} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:9,
             padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>📋 Copiar</button>
+          <SelLote rotulo="↪ Mover para" onPick={moverPara}>
+            {Object.entries(ESPACOS).map(([k, e]) => (
+              <optgroup key={k} label={`${e.icone} ${e.nome}`}>
+                {e.secoes.map(s => <option key={s} value={s}>{SECTIONS[s].title}</option>)}
+              </optgroup>
+            ))}
+          </SelLote>
+          <SelLote rotulo="💳 Forma" onPick={v => emLote(() => ({ forma:v }), `Forma de pagamento → ${v}`)}>
+            {OPTS.forma.map(f => <option key={f} value={f}>{f}</option>)}
+          </SelLote>
+          <SelLote rotulo="✓ Status" onPick={v => emLote(() => ({ status:v }), `Status → ${v === "pago" ? "Pago" : "Não pago"}`)}>
+            <option value="pago">Pago</option><option value="nao_pago">Não pago</option>
+          </SelLote>
+          {listaCatLote && (
+            <SelLote rotulo="🏷 Categoria" onPick={v => emLote(r => r.secao === "receita" ? {} : { categoria:v }, `Categoria → ${v}`)}>
+              {listaCatLote.map(c => <option key={c} value={c}>{c}</option>)}
+            </SelLote>
+          )}
           <button onClick={excluirSelecionados} style={{ background:"#FFE3E3", color:P.vermelho, border:"none", borderRadius:9,
             padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>🗑 Excluir</button>
           <button onClick={() => setSel(new Set())} style={{ background:"transparent", color:"#fff", border:"1px solid rgba(255,255,255,.35)",
-            borderRadius:9, padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>Limpar seleção</button>
+            borderRadius:9, padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>Limpar</button>
         </div>
       )}
     </div>
+  );
+}
+
+// Botão da barra de selecionados que abre uma lista (select nativo: funciona bem no iPad)
+function SelLote({ rotulo, onPick, children }) {
+  return (
+    <label style={{ position:"relative", background:"#fff", color:P.roxo, borderRadius:9, padding:"7px 12px", fontFamily:FONT,
+      fontSize:12, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" }}>
+      {rotulo} ▾
+      <select value="" aria-label={rotulo.replace(/^\S+\s/, "")} onChange={e => { if (e.target.value) onPick(e.target.value); e.target.value = ""; }}
+        style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%", fontSize:16 }}>
+        <option value="" disabled>{rotulo.replace(/^\S+\s/, "")}…</option>
+        {children}
+      </select>
+    </label>
   );
 }
 
