@@ -104,7 +104,13 @@ const GASTOS = ["fixo","variavel","extra"];
 const STORAGE_KEY = "aigo-financeiro-v2";
 const REVIEW_KEY = "aigo-financeiro-conferencia";   // o que a IA leu e ainda não foi salvo
 const HIST_KEY = "aigo-financeiro-historico";       // últimas importações (para conferir/desfazer)
+const APAG_KEY = "aigo-financeiro-apagados";        // o que foi excluído (para excluir também nos outros aparelhos)
 
+// Identifica este aparelho (para juntar o mesmo lançamento feito em dois aparelhos)
+const DISP = (() => {
+  try { let d = localStorage.getItem("aigo-fin-disp"); if (!d) { d = Math.random().toString(36).slice(2, 10); localStorage.setItem("aigo-fin-disp", d); } return d; }
+  catch { return "sem-id"; }
+})();
 const lerJSON = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? def; } catch { return def; } };
 
 // Paleta (mesma da planilha)
@@ -165,6 +171,9 @@ function normalize(r) {
     servico: secao === "receita" ? pick("servico", "Social Media") : "",
     tipo: secao === "receita" ? pick("tipo", "") : "",
     info: r.info || "",
+    upd: Number(r.upd) || 0,     // hora da última alteração (para sincronizar)
+    disp: r.disp || "",          // aparelho onde foi criado
+    ord: Number(r.ord) || 0,     // ordem de criação (mantém a ordem dentro do mesmo dia)
   };
 }
 
@@ -177,7 +186,7 @@ function fromAI(t, mesAtual) {
 function load() {
   try {
     const v2 = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (Array.isArray(v2)) return v2.map(normalize);
+    if (Array.isArray(v2)) return v2.map((r, i) => normalize({ ...r, ord: r.ord ?? i + 1 }));
     // migra a versão anterior da página
     const v1 = JSON.parse(localStorage.getItem("aigo-financeiro-v1") || "[]");
     return v1.map(t => normalize({
@@ -190,7 +199,10 @@ function load() {
 }
 
 const sortRows = rows => [...rows].sort((a, b) =>
-  a.mes.localeCompare(b.mes) || (a.dia === "" ? 99 : a.dia) - (b.dia === "" ? 99 : b.dia));
+  a.mes.localeCompare(b.mes) || (a.dia === "" ? 99 : a.dia) - (b.dia === "" ? 99 : b.dia) || a.ord - b.ord || a.id.localeCompare(b.id));
+// Marca uma linha nova ou alterada para a sincronização
+const marcar = r => ({ ...r, upd: Date.now(), disp: r.disp || DISP, ord: r.ord || Date.now() });
+const igual = (a, b) => { const k = x => JSON.stringify([...x].sort((p, q) => String(p.id).localeCompare(String(q.id)))); return k(a) === k(b); };
 
 // Identifica lançamentos iguais (para não duplicar ao importar o mesmo print de novo)
 const chave = r => [r.mes, r.secao, r.dia, r.descricao.trim().toLowerCase(), r.valor.toFixed(2)].join("|");
@@ -851,6 +863,8 @@ function FinanceiroApp({ senha, sair }) {
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
   const [salvo, setSalvo] = useState({ ok:true, quando:null });
+  const [apagados, setApagados] = useState(() => lerJSON(APAG_KEY, []));
+  const [nuvem, setNuvem] = useState({ estado:"conectando", quando:null });   // conectando | enviando | ok | sem | erro
   const [reading, setReading] = useState(false);
   const [msg, setMsg] = useState("");
   const [drag, setDrag] = useState(false);
@@ -867,10 +881,61 @@ function FinanceiroApp({ senha, sair }) {
     } catch { setSalvo({ ok:false, quando: new Date() }); }
   }, [rows]);
   useEffect(() => { try { localStorage.setItem(REVIEW_KEY, JSON.stringify(review)); } catch {} }, [review]);
+  useEffect(() => { try { localStorage.setItem(APAG_KEY, JSON.stringify(apagados)); } catch {} }, [apagados]);
+
+  // ── Nuvem: manda o que este aparelho tem e recebe tudo já juntado com os outros aparelhos ──
+  const atual = useRef({ rows, apagados });
+  atual.current = { rows, apagados };
+  const sync = useRef({ rodando:false, pendente:false });
+  async function sincronizar() {
+    if (sync.current.rodando) { sync.current.pendente = true; return; }
+    sync.current.rodando = true;
+    setNuvem(n => ({ ...n, estado: n.estado === "ok" ? "enviando" : n.estado }));
+    try {
+      const enviado = atual.current;
+      const resp = await fetch("/api/fin-dados", {
+        method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
+        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados }),
+      });
+      if (resp.status === 401) { sair(); return; }
+      const out = await resp.json().catch(() => ({}));
+      if (resp.status === 503 && out.semNuvem) { setNuvem({ estado:"sem", quando:null }); return; }
+      if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
+      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados) {
+        sync.current.pendente = true;          // mudou algo enquanto enviava: manda de novo antes de aplicar
+      } else {
+        const daNuvem = (out.rows || []).map(normalize);
+        if (!igual(daNuvem, enviado.rows)) setRows(sortRows(daNuvem));
+        if (!igual(out.apagados || [], enviado.apagados)) setApagados(out.apagados || []);
+      }
+      setNuvem({ estado:"ok", quando:new Date() });
+    } catch {
+      setNuvem({ estado:"erro", quando:null });
+    } finally {
+      sync.current.rodando = false;
+      if (sync.current.pendente) { sync.current.pendente = false; setTimeout(sincronizar, 300); }
+    }
+  }
+  // depois de cada alteração (espera 1 segundo sem mexer)
+  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados]);
+  // a cada 15 segundos e ao voltar para a aba, para receber o que foi lançado no outro aparelho
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === "visible") sincronizar(); }, 15000);
+    const ver = () => { if (document.visibilityState === "visible") sincronizar(); };
+    document.addEventListener("visibilitychange", ver);
+    window.addEventListener("focus", ver);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", ver); window.removeEventListener("focus", ver); };
+  }, []);
   useEffect(() => { try { localStorage.setItem(HIST_KEY, JSON.stringify(historico)); } catch {} }, [historico]);
   // Site aberto em outra aba: recebe o que ela salvou, em vez de sobrescrever
   useEffect(() => {
-    const onStorage = e => { if (e.key === STORAGE_KEY && e.newValue) { try { setRows(JSON.parse(e.newValue).map(normalize)); } catch {} } };
+    const onStorage = e => {
+      if (!e.newValue) return;
+      try {
+        if (e.key === STORAGE_KEY) setRows(JSON.parse(e.newValue).map(normalize));
+        if (e.key === APAG_KEY) setApagados(JSON.parse(e.newValue));
+      } catch {}
+    };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -918,12 +983,14 @@ function FinanceiroApp({ senha, sair }) {
   }, [rows, doMes, aba, ano, mes]);
 
   // ── edição ──
-  const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? normalize({ ...r, ...patch }) : r));
-  const add = secao => setRows(rs => [...rs, normalize({ secao, mes, dia:"", status: secao === "receita" ? "pago" : "nao_pago" })]);
+  const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? marcar(normalize({ ...r, ...patch })) : r));
+  const add = secao => setRows(rs => [...rs, marcar(normalize({ secao, mes, dia:"", status: secao === "receita" ? "pago" : "nao_pago" }))]);
+  const registrarApagados = ids => { const agora = Date.now(); setApagados(ap => [...ap.filter(a => !ids.includes(a.id)), ...ids.map(id => ({ id, upd:agora }))]); };
   const remove = id => {
     const r = rows.find(x => x.id === id);
     if ((r.descricao || r.valor) && !window.confirm(`Excluir "${r.descricao || brl(r.valor)}"?`)) return;
     setRows(rs => rs.filter(x => x.id !== id));
+    registrarApagados([id]);
   };
   const sortDia = () => setRows(sortRows);
 
@@ -931,7 +998,7 @@ function FinanceiroApp({ senha, sair }) {
     const prev = aba === 0 ? mesKey(ano - 1, 11) : mesKey(ano, aba - 1);
     const atuais = new Set(bySec("fixo").map(r => r.descricao.trim().toLowerCase()));
     const novos = rows.filter(r => r.mes === prev && r.secao === "fixo" && !atuais.has(r.descricao.trim().toLowerCase()))
-      .map(r => normalize({ ...r, id: uid(), mes, status:"nao_pago" }));
+      .map(r => marcar(normalize({ ...r, id: uid(), mes, status:"nao_pago", disp:"", ord:0 })));
     if (!novos.length) { setMsg("⚠️ Nada para puxar: o mês anterior não tem gastos fixos (ou eles já estão aqui)."); return; }
     setRows(rs => sortRows([...rs, ...novos]));
     setMsg(`✅ ${novos.length} gastos fixos copiados do mês anterior, todos como "Não pago".`);
@@ -958,6 +1025,7 @@ function FinanceiroApp({ senha, sair }) {
     if (!window.confirm(`Excluir ${selecionados.length} lançamento${selecionados.length > 1 ? "s" : ""} selecionado${selecionados.length > 1 ? "s" : ""}?`)) return;
     const ids = new Set(selecionados.map(r => r.id));
     setRows(rs => rs.filter(r => !ids.has(r.id)));
+    registrarApagados([...ids]);
     setMsg(`🗑 ${ids.size} lançamento${ids.size > 1 ? "s" : ""} excluído${ids.size > 1 ? "s" : ""}.`);
     setSel(new Set());
   }
@@ -996,7 +1064,7 @@ function FinanceiroApp({ senha, sair }) {
 
   function confirmar() {
     const existentes = new Set(rows.map(chave));
-    const novos = review.filter(r => !existentes.has(chave(r)));
+    const novos = review.filter(r => !existentes.has(chave(r))).map((r, i) => marcar({ ...r, ord: Date.now() + i }));
     const repetidos = review.length - novos.length;
     setRows(rs => sortRows([...rs, ...novos]));
     setDestaque(new Set(novos.map(r => r.id)));
@@ -1022,6 +1090,7 @@ function FinanceiroApp({ senha, sair }) {
     const n = rows.filter(r => ids.has(r.id)).length;
     if (!window.confirm(`Desfazer esta importação? ${n} lançamento${n !== 1 ? "s" : ""} será${n !== 1 ? "ão" : ""} removido${n !== 1 ? "s" : ""}.`)) return;
     setRows(rs => rs.filter(r => !ids.has(r.id)));
+    registrarApagados([...ids]);
     setHistorico(hs => hs.filter(x => x.id !== h.id));
     setMsg(`↩ Importação desfeita: ${n} lançamento${n !== 1 ? "s" : ""} removido${n !== 1 ? "s" : ""}.`);
   }
@@ -1061,11 +1130,16 @@ function FinanceiroApp({ senha, sair }) {
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
           </div>
-          <div title={salvo.ok ? "Tudo o que você lança fica guardado neste navegador" : "O navegador não deixou salvar. Não use janela anônima e faça um backup."}
-            style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100, whiteSpace:"nowrap",
-              background: salvo.ok ? "#EEF8F0" : "#FFF0F0", color: salvo.ok ? P.verde : P.vermelho }}>
-            {salvo.ok ? `✓ Salvo${salvo.quando ? " às " + salvo.quando.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }) : ""}` : "⚠ Não foi salvo"}
-          </div>
+          {(() => {
+            const hora = d => d ? " às " + d.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }) : "";
+            const st = !salvo.ok ? ["#FFF0F0", P.vermelho, "⚠ Não foi salvo", "O navegador não deixou salvar. Não use janela anônima."]
+              : nuvem.estado === "ok" ? ["#EEF8F0", P.verde, `☁ Sincronizado${hora(nuvem.quando)}`, "Salvo na nuvem: aparece igual no computador e no iPad"]
+              : nuvem.estado === "sem" ? ["#FFF6E5", "#A85A00", "⚠ Nuvem não conectada", "Por enquanto salvo só neste aparelho"]
+              : nuvem.estado === "erro" ? ["#FFF6E5", "#A85A00", "⚠ Sem conexão", "Salvo neste aparelho; sincroniza sozinho quando a internet voltar"]
+              : [P.lilasClaro, P.roxo, "☁ Sincronizando…", "Enviando para a nuvem"];
+            return <div title={st[3]} style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100,
+              whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>;
+          })()}
           <button onClick={sair} title="Sair (pede a senha de novo)" style={{ border:`1px solid ${P.lilas}`, background:P.papel,
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
@@ -1251,7 +1325,7 @@ function FinanceiroApp({ senha, sair }) {
         )}
 
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:24, fontSize:11, color:P.suave }}>
-          <span>Os dados ficam salvos neste navegador.</span>
+          <span>{nuvem.estado === "ok" ? "Os dados ficam salvos na nuvem e sincronizam entre os seus aparelhos." : "Os dados ficam salvos neste navegador."}</span>
           <Btn onClick={() => downloadFile(`backup-financeiro-${hojeISO()}.json`, JSON.stringify(rows, null, 2), "application/json")}
             style={{ padding:"6px 12px", fontSize:11 }}>Fazer backup</Btn>
           <Btn onClick={() => backupRef.current?.click()} style={{ padding:"6px 12px", fontSize:11 }}>Restaurar backup</Btn>
