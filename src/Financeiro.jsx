@@ -89,7 +89,7 @@ const REGRAS_GRUPO = [
   ["Mercado e dia a dia", /mercado|supermercado|katuxa|padaria|a[cç]ougue|feira|ifood|lanche|restaurante|almo[cç]o|janta|caf[eé]/],
   ["Casa e contas", /aluguel|caixa|financiamento|condom[ií]nio|energia|\bluz\b|[aá]gua|internet|g[aá]s|ilda|diarista|iptu/],
   ["Coisas p/ casa", /port[aã]o|placa solar|tinta|riotintas|m[oó]vel|eletro|geladeira|fog[aã]o|sof[aá]|cama|colch[aã]o|panela|reforma|constru|casa|decora/],
-  ["Pessoal", /roupa|saia|blusa|brusinha|conjunto|t[eê]nis|sapato|cabelo|unha|presente|raquete|livelo|viagem|lazer/],
+  ["Pessoal", /renner|riachuelo|shein|zara|marisa|hering|\bc&a\b|roupa|saia|blusa|brusinha|conjunto|t[eê]nis|sapato|cabelo|unha|presente|raquete|livelo|viagem|lazer/],
 ];
 function sugerirGrupo(descricao = "", classe = "") {
   const d = descricao.toLowerCase();
@@ -157,6 +157,10 @@ const ESPACOS = {
   pessoal: { nome:"Pessoal", icone:"🏠", secoes:["p_fixo","p_casa","p_extra"] },
 };
 const espacoDe = secao => secao.startsWith("p_") ? "pessoal" : "empresa";
+// Troca um lançamento de lado (Empresa ↔ Pessoal), escolhendo a tabela equivalente
+const PARA_LADO = { pessoal:{ fixo:"p_fixo", variavel:"p_extra", extra:"p_extra" }, empresa:{ p_fixo:"fixo", p_casa:"variavel", p_extra:"extra" } };
+const trocarLado = (r, lado) => espacoDe(r.secao) === lado || !PARA_LADO[lado][r.secao] ? r
+  : normalize({ ...r, secao:PARA_LADO[lado][r.secao], categoria:"" });
 
 const STORAGE_KEY = "aigo-financeiro-v2";
 const REVIEW_KEY = "aigo-financeiro-conferencia";   // o que a IA leu e ainda não foi salvo
@@ -1340,10 +1344,12 @@ function FinanceiroApp({ senha, sair }) {
     if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); setEspaco(espacoDe(first.secao)); }
     const porMes = {};
     novos.forEach(r => { const [y, m] = r.mes.split("-"); const k = `${MESES[+m - 1]} ${y}`; porMes[k] = (porMes[k] || 0) + 1; });
-    const onde = (first ? `${ESPACOS[espacoDe(first.secao)].icone} ` : "") + Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
+    const onde = (first && novos.every(r => espacoDe(r.secao) === espacoDe(first.secao)) ? `${ESPACOS[espacoDe(first.secao)].icone} ` : "") + Object.entries(porMes).map(([k, n]) => `${n} em ${k}`).join(", ");
     if (novos.length) setHistorico(h => [{ id: uid(), quando: new Date().toISOString(), ids: novos.map(r => r.id), onde,
       mes: novos[0].mes }, ...h].slice(0, 15));
-    setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
+    const nEmp = novos.filter(r => espacoDe(r.secao) === "empresa").length, nPes = novos.length - nEmp;
+    const lados = nEmp && nPes ? ` — ${nEmp} na 🏢 Empresa e ${nPes} no 🏠 Pessoal` : "";
+    setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${lados}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
       + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : ""));
     setReview([]);
   }
@@ -1494,6 +1500,8 @@ function FinanceiroApp({ senha, sair }) {
                   <option value="" style={{ color:P.tinta }}>📅 Mudar mês de todos…</option>
                   {MESES.map((m, i) => <option key={m} value={mesKey(ano, i)} style={{ color:P.tinta }}>{m} {ano}</option>)}
                 </select>
+                <HeadBtn onClick={() => setReview(rv => rv.map(r => trocarLado(r, "empresa")))}>🏢 Tudo Empresa</HeadBtn>
+                <HeadBtn onClick={() => setReview(rv => rv.map(r => trocarLado(r, "pessoal")))}>🏠 Tudo Pessoal</HeadBtn>
                 <HeadBtn onClick={() => setReview([])}>Descartar</HeadBtn>
                 <button onClick={confirmar} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:8, padding:"5px 12px",
                   fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Salvar lançamentos</button>
@@ -1502,19 +1510,39 @@ function FinanceiroApp({ senha, sair }) {
             <div style={{ overflowX:"auto" }}>
               <table style={{ borderCollapse:"collapse", width:"100%", minWidth:900, fontFamily:FONT }}>
                 <thead><tr>
-                  {["Seção","Mês","Dia","Descrição","Valor","Forma de pag.","Status","Categoria / Serviço",""].map((h, i) =>
+                  {["De quem","Seção","Mês","Dia","Descrição","Valor","Forma de pag.","Status","Categoria / Serviço",""].map((h, i) =>
                     <th key={i} style={{ background:P.lilas, fontSize:11, fontWeight:700, padding:"6px 8px", textAlign:"left", whiteSpace:"nowrap" }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {review.map(r => {
                     const set = patch => setReview(rv => rv.map(x => x.id === r.id ? normalize({ ...x, ...patch }) : x));
-                    const td = { borderBottom:`1px solid ${P.linha}`, padding:0 };
+                    const lado = espacoDe(r.secao);
+                    const td = { borderBottom:`1px solid ${P.linha}`, padding:0, ...(lado === "pessoal" ? { background:"#FFF2F7" } : {}) };
+                    const pilula = (k, on, cor) => (
+                      <button key={k} onClick={() => setReview(rv => rv.map(x => x.id === r.id ? trocarLado(x, k) : x))}
+                        disabled={!on && !PARA_LADO[k][r.secao]} aria-pressed={on}
+                        title={!on && !PARA_LADO[k][r.secao] ? "Receitas ficam só na Empresa" : undefined}
+                        style={{ border:"none", borderRadius:999, padding:"4px 9px", fontFamily:FONT, fontSize:11, fontWeight:700, whiteSpace:"nowrap",
+                          background: on ? cor : "transparent", color: on ? "#fff" : P.suave,
+                          cursor: on || !PARA_LADO[k][r.secao] ? "default" : "pointer", opacity: !on && !PARA_LADO[k][r.secao] ? .4 : 1 }}>
+                        {ESPACOS[k].icone}<span className="fin-nome"> {ESPACOS[k].nome}</span>
+                      </button>
+                    );
                     return (
                       <tr key={r.id} className="fin-row">
+                        <td style={{ ...td, padding:"3px 6px" }}>
+                          <div style={{ display:"inline-flex", background:"#EEE8FB", borderRadius:999, padding:2, gap:2 }}>
+                            {pilula("empresa", lado === "empresa", P.roxo)}{pilula("pessoal", lado === "pessoal", "#D9578A")}
+                          </div>
+                        </td>
                         <td style={td}>
-                          <select className="fin-cell" value={r.secao} onChange={e => set({ secao:e.target.value })}
+                          <select className="fin-cell" value={r.secao} onChange={e => set({ secao:e.target.value, ...(espacoDe(e.target.value) !== lado ? { categoria:"" } : {}) })}
                             style={{ ...cellBase, fontWeight:700, color:P.roxo, cursor:"pointer" }}>
-                            {Object.entries(SECTIONS).filter(([k]) => ESPACOS[espacoDe(r.secao)].secoes.includes(k)).map(([k, s]) => <option key={k} value={k}>{s.title}</option>)}
+                            {Object.entries(ESPACOS).map(([k, e]) => (
+                              <optgroup key={k} label={`${e.icone} ${e.nome}`}>
+                                {e.secoes.map(x => <option key={x} value={x}>{SECTIONS[x].title}</option>)}
+                              </optgroup>
+                            ))}
                           </select>
                         </td>
                         <td style={td}>
@@ -1546,6 +1574,12 @@ function FinanceiroApp({ senha, sair }) {
                   })}
                 </tbody>
               </table>
+            </div>
+            <div style={{ padding:"9px 14px", background:"#F7F4FD", fontSize:12, display:"flex", gap:20, flexWrap:"wrap" }}>
+              {Object.entries(ESPACOS).map(([k, e]) => {
+                const rs = review.filter(r => espacoDe(r.secao) === k);
+                return <span key={k}>{e.icone} <b>{e.nome}:</b> {rs.length} lançamento{rs.length !== 1 ? "s" : ""} · {brl(rs.reduce((t, r) => t + r.valor, 0))}</span>;
+              })}
             </div>
           </div>
         )}
