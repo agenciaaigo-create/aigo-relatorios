@@ -1196,7 +1196,13 @@ function FinanceiroApp({ senha, sair }) {
   const mes = aba === "geral" ? null : mesKey(ano, aba);
   const rowsEsp = useMemo(() => rows.filter(r => ESPACOS[espaco].secoes.includes(r.secao)), [rows, espaco]);
   const doMes = useMemo(() => rowsEsp.filter(r => r.mes === mes), [rowsEsp, mes]);
-  const bySec = s => doMes.filter(r => r.secao === s);
+  // Em Parcelas e Extras e em todas as tabelas do Pessoal, as linhas com parcela no Info (ex.: 3/10) ficam sempre no topo
+  const bySec = s => {
+    const rs = doMes.filter(r => r.secao === s);
+    if (s !== "extra" && !s.startsWith("p_")) return rs;
+    const ordem = sortRows(rs);
+    return [...ordem.filter(r => parcela(r)), ...ordem.filter(r => !parcela(r))];
+  };
 
   const resumo = useMemo(() => {
     const sum = f => doMes.filter(f).reduce((s, r) => s + r.valor, 0);
