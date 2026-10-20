@@ -80,6 +80,37 @@ const CHIPS = {
 const OPTS = Object.fromEntries(Object.entries(CHIPS).map(([k, v]) => [k, v.map(o => o[0])]));
 const COR_CAT = { ...Object.fromEntries(CHIPS.grupo), ...Object.fromEntries(CHIPS.categoria) };
 
+// Categorias criadas por você ("＋ Nova categoria…"). Vêm dos próprios lançamentos, então sincronizam junto.
+const CAT_EXTRA = { empresa:[], pessoal:[] };
+const CORES_EXTRA = ["#0f8b8d", "#a0522d", "#8e44ad", "#c2185b", "#5d7a1f", "#1f3a93", "#b8860b", "#00838f", "#6d4c41", "#d81b60"];
+const CAT_LEGADO = ["Investimento", "Maringá"];
+const catPadrao = esp => esp === "pessoal" ? OPTS.grupo : OPTS.categoria;
+const listaCat = esp => { const p = catPadrao(esp); return [...p.filter(c => c !== "Outros"), ...CAT_EXTRA[esp], "Outros"]; };
+const corCat = n => COR_CAT[n] || CORES_EXTRA[Math.max(0, [...CAT_EXTRA.empresa, ...CAT_EXTRA.pessoal].indexOf(n)) % CORES_EXTRA.length];
+const NOVA_CAT = "__nova__";
+function pedirNovaCategoria(esp) {
+  const nome = (window.prompt(`Nova categoria (${esp === "pessoal" ? "🏠 Pessoal" : "🏢 Empresa"}):`) || "").trim().replace(/\s+/g, " ");
+  if (!nome) return "";
+  const existe = listaCat(esp).find(c => c.toLowerCase() === nome.toLowerCase());
+  if (existe) return existe;
+  const novo = nome[0].toUpperCase() + nome.slice(1);
+  CAT_EXTRA[esp] = [...CAT_EXTRA[esp], novo];
+  return novo;
+}
+// Recalcula as categorias criadas a partir dos lançamentos
+function atualizarCatExtra(rows) {
+  const out = { empresa:new Set(), pessoal:new Set() };
+  rows.forEach(r => {
+    if (!r.categoria || r.secao === "receita") return;
+    const esp = espacoDe(r.secao);
+    if (!catPadrao(esp).includes(r.categoria) && !CAT_LEGADO.includes(r.categoria)) out[esp].add(r.categoria);
+  });
+  // mantém as recém-criadas (ainda sem lançamento salvo) e a ordem de criação
+  ["empresa", "pessoal"].forEach(esp => {
+    CAT_EXTRA[esp] = [...new Set([...CAT_EXTRA[esp].filter(c => out[esp].has(c)), ...out[esp]])];
+  });
+}
+
 // Pessoal: sugere o grupo pelo nome (e pela categoria da planilha, quando ajuda)
 const REGRAS_GRUPO = [
   ["Saúde", /sa[uú]de|m[eé]dic|dentista|farm[aá]cia|rem[eé]dio|exame|terapia|academia|psic/],
@@ -135,6 +166,7 @@ const COL = {
   servico:   { label:"Serviço", w:106, kind:"chip" },
   tipo:      { label:"Fotografia", w:110, kind:"chip" },
   info:      { label:"Info", w:48, kind:"text" },
+  infoRec:   { label:"Info", w:140, kind:"text", campo:"info" },   // Receitas: Info mais larga
 };
 
 // cols = o que aparece na tela; copia = a ordem das colunas da sua planilha (para colar)
@@ -142,7 +174,7 @@ const SECTIONS = {
   fixo:     { title:"Gastos Fixos",      cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","forma","status","info"] },
   variavel: { title:"Gastos Variáveis",  cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","forma","status","info"] },
   extra:    { title:"Parcelas e Extras", cols:["dia","descricao","valor","categoria","forma","status","info"], copia:["dia","descricao","valor","categoria","status","forma","info"] },
-  receita:  { title:"Receitas",          cols:["dia","descricao","valor","p80","p20","servico","tipo"], copia:["dia","descricao","valor","p80","p20","servico","tipo","forma","info"] },
+  receita:  { title:"Receitas",          cols:["dia","descricao","valor","p80","p20","servico","tipo","infoRec"], copia:["dia","descricao","valor","p80","p20","servico","tipo","forma","info"] },
 };
 const GASTOS = ["fixo","variavel","extra"];
 
@@ -216,6 +248,12 @@ function parseValor(v) {
   return isNaN(n) ? 0 : Math.abs(n);
 }
 
+// A categoria serve para este lado? (as padrão dele ou uma criada; nunca a padrão do outro lado)
+function catPropria(secao, c) {
+  if (!c || typeof c !== "string" || CAT_LEGADO.includes(c)) return false;
+  const esp = espacoDe(secao), outro = esp === "pessoal" ? "empresa" : "pessoal";
+  return catPadrao(esp).includes(c) || (!catPadrao(outro).includes(c) && (CAT_EXTRA[esp].includes(c) || !CAT_EXTRA[outro].includes(c)));
+}
 function normalize(r) {
   const secao = SECTIONS[r.secao] ? r.secao : "variavel";
   const pick = (k, def = "") => OPTS[k].includes(r[k]) ? r[k] : def;
@@ -229,8 +267,9 @@ function normalize(r) {
     forma: pick("forma", "Pix"),
     status: r.status === "nao_pago" ? "nao_pago" : "pago",
     categoria: secao === "receita" ? ""
-      : espacoDe(secao) === "pessoal" ? (OPTS.grupo.includes(r.categoria) ? r.categoria : sugerirGrupo(r.descricao, r.classeExtra || r.classe))
-      : (OPTS.categoria.includes(r.categoria) ? r.categoria : sugerirCategoria(r.descricao, r.categoria)),
+      : catPropria(secao, r.categoria) ? r.categoria
+      : espacoDe(secao) === "pessoal" ? sugerirGrupo(r.descricao, r.classeExtra || r.classe)
+      : sugerirCategoria(r.descricao, r.categoria),
     classeCasa: secao === "p_casa" ? (OPTS.classeCasa.includes(r.classeCasa) ? r.classeCasa : OPTS.classeCasa.includes(r.classe) ? r.classe : "Fixo") : "",
     classeExtra: secao === "p_extra" ? (OPTS.classeExtra.includes(r.classeExtra) ? r.classeExtra : OPTS.classeExtra.includes(r.classe) ? r.classe : "pessoal") : "",
     servico: secao === "receita" ? pick("servico", "Social Media") : "",
@@ -245,7 +284,9 @@ function normalize(r) {
 // Converte um lançamento vindo da IA (com data AAAA-MM-DD)
 function fromAI(t, mesAtual) {
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(t.data || "");
-  return normalize({ ...t, mes: ok ? t.data.slice(0, 7) : mesAtual, dia: ok ? +t.data.slice(8, 10) : "" });
+  const sec = SECTIONS[t.secao] ? t.secao : "variavel";
+  const categoria = listaCat(espacoDe(sec)).includes(t.categoria) ? t.categoria : "";
+  return normalize({ ...t, categoria, mes: ok ? t.data.slice(0, 7) : mesAtual, dia: ok ? +t.data.slice(8, 10) : "" });
 }
 
 function load() {
@@ -358,14 +399,19 @@ function ChipSelect({ field, value, onChange }) {
 }
 
 // Categoria: quadradinho colorido + nome (mais discreto que um chip)
-function CatSelect({ value, onChange, lista = OPTS.categoria }) {
+function CatSelect({ value, onChange, espaco = "empresa" }) {
+  const lista = listaCat(espaco);
   return (
     <div style={{ position:"relative", display:"flex", alignItems:"center", padding:"0 4px 0 8px" }}>
-      <span style={{ width:9, height:9, borderRadius:2, background:COR_CAT[value] || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
-      <select className="fin-cell" value={value} onChange={e => onChange(e.target.value)}
+      <span style={{ width:9, height:9, borderRadius:2, background:corCat(value) || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
+      <select className="fin-cell" value={value} onChange={e => {
+          const v = e.target.value === NOVA_CAT ? pedirNovaCategoria(espaco) : e.target.value;
+          if (v) onChange(v); else e.target.value = value;
+        }}
         style={{ ...cellBase, appearance:"none", WebkitAppearance:"none", cursor:"pointer", color:P.suave,
           fontSize:10.5, fontWeight:600, paddingLeft:5, whiteSpace:"nowrap", textOverflow:"ellipsis" }}>
         {lista.map(c => <option key={c} value={c}>{c}</option>)}
+        <option value={NOVA_CAT}>＋ Nova categoria…</option>
       </select>
     </div>
   );
@@ -438,16 +484,16 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
                     style={{ ...caixa, pointerEvents:"none" }}/>
                 </td>
                 {cols.map(c => {
-                  const col = COL[c];
-                  const set = v => onEdit(r.id, { [c]: v });
+                  const col = COL[c], f = col.campo || c;
+                  const set = v => onEdit(r.id, { [f]: v });
                   let cell;
                   if (col.kind === "dia") cell = <TextCell value={r.dia} align="center" placeholder="—"
                     onChange={v => set(v.replace(/\D/g, "").slice(0, 2))} onBlur={onSortDia}/>;
                   else if (col.kind === "money") cell = <MoneyCell value={r.valor} onChange={set}/>;
                   else if (col.kind === "calc") cell = <div style={{ ...cellBase, textAlign:"right", color:P.suave }}>{brl(col.calc(r))}</div>;
                   else if (col.kind === "chip") cell = <ChipSelect field={c} value={r[c]} onChange={set}/>;
-                  else if (col.kind === "cat") cell = <CatSelect value={r.categoria} onChange={set}/>;
-                  else cell = <TextCell value={r[c]} onChange={set} bold={c === "descricao"} placeholder={c === "descricao" ? "Descrição" : ""}/>;
+                  else if (col.kind === "cat") cell = <CatSelect value={r.categoria} onChange={set} espaco={espacoDe(secao)}/>;
+                  else cell = <TextCell value={r[f]} onChange={set} bold={c === "descricao"} placeholder={c === "descricao" ? "Descrição" : ""}/>;
                   return <td key={c} style={{ ...td, ...fundo(r) }}>{cell}</td>;
                 })}
                 <td style={{ ...td, borderRight:"none", textAlign:"center", ...fundo(r) }}>
@@ -572,7 +618,7 @@ function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha }) {
 const COR_FORMA = { "Pix":"#1baf7a", "Sicoob":"#008300", "Nubank":"#6250d6", "Mercado Pago":"#2a78d6", "Cartão":"#eb6834", "Dinheiro":"#eda100", "Outro":"#9A94AC" };
 const COR_ITEM = OPTS.categoria.slice(0, 8).map(c => COR_CAT[c]);
 const MODOS = {
-  categoria: { label:"Categoria",     key:r => r.categoria || "Outros", cor:(n) => COR_CAT[n] },
+  categoria: { label:"Categoria",     key:r => r.categoria || "Outros", cor:(n) => corCat(n) },
   item:      { label:"Item",          key:r => r.descricao.trim() || "(sem descrição)" },
   forma:     { label:"Forma de pag.", key:r => r.forma, cor:(n) => COR_FORMA[n] },
 };
@@ -940,7 +986,7 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
       </div>
       <div className="fin-2col">
         <ParaOndeFoi key={mes} rows={gastos} anteriores={analise.anteriores} compararCom={analise.nomeAnt}
-          rotulo="💸 Para onde foi o meu dinheiro" listaGrupos={OPTS.grupo} onMudarGrupo={mudarGrupo}/>
+          rotulo="💸 Para onde foi o meu dinheiro" listaGrupos={listaCat("pessoal")} onMudarGrupo={mudarGrupo}/>
         <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
           <ParcelasAndamento gastos={gastos}/>
           <UltimosMeses serie={analise.serie} soGastos onPick={m => { const d = analise.serie.find(x => x.mes === m); if (d) { setAno(d.ano); setAba(d.mes); } }}/>
@@ -1112,6 +1158,7 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem("aigo-fin-espaco", espaco); } catch {} }, [espaco]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
+  atualizarCatExtra(review.length ? [...rows, ...review] : rows);   // categorias criadas (vêm dos lançamentos)
   const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
@@ -1305,8 +1352,9 @@ function FinanceiroApp({ senha, sair }) {
     setSel(new Set());
   }
   const comCategoria = selecionados.filter(r => r.secao !== "receita");
-  const listaCatLote = comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "pessoal") ? OPTS.grupo
-    : comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "empresa") ? OPTS.categoria : null;
+  const espLote = comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "pessoal") ? "pessoal"
+    : comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "empresa") ? "empresa" : null;
+  const listaCatLote = espLote ? listaCat(espLote) : null;
 
   // "✓ Concluir": termina a ação em lote e desmarca tudo (também com Esc)
   const alterados = useRef(new Set());
@@ -1337,7 +1385,7 @@ function FinanceiroApp({ senha, sair }) {
       const images = await Promise.all(files.map(f => compressImage(f, files.length)));
       const resp = await fetch("/api/ler-financeiro", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: OPTS, espaco }),
+        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: { ...OPTS, categoria: listaCat("empresa"), grupo: listaCat("pessoal") }, espaco }),
       });
       if (resp.status === 413) throw new Error("Imagens muito grandes. Tente com menos prints por vez.");
       if (resp.status === 401) { sair(); return; }
@@ -1581,7 +1629,7 @@ function FinanceiroApp({ senha, sair }) {
                         <td style={td}>
                           {r.secao === "p_casa" && <ChipSelect field="classeCasa" value={r.classeCasa} onChange={v => set({ classeCasa:v })}/>}
                           {r.secao === "p_extra" && <ChipSelect field="classeExtra" value={r.classeExtra} onChange={v => set({ classeExtra:v })}/>}
-                          {r.secao !== "receita" && <CatSelect value={r.categoria} lista={espacoDe(r.secao) === "pessoal" ? OPTS.grupo : OPTS.categoria} onChange={v => set({ categoria:v })}/>}
+                          {r.secao !== "receita" && <CatSelect value={r.categoria} espaco={espacoDe(r.secao)} onChange={v => set({ categoria:v })}/>}
                           {r.secao === "receita" && <div style={{ display:"flex" }}>
                             <ChipSelect field="servico" value={r.servico} onChange={v => set({ servico:v })}/>
                             <ChipSelect field="tipo" value={r.tipo} onChange={v => set({ tipo:v })}/>
@@ -1694,8 +1742,10 @@ function FinanceiroApp({ senha, sair }) {
             <option value="pago">Pago</option><option value="nao_pago">Não pago</option>
           </SelLote>
           {listaCatLote && (
-            <SelLote rotulo="🏷 Categoria" onPick={v => emLote(r => r.secao === "receita" ? {} : { categoria:v }, `Categoria → ${v}`)}>
+            <SelLote rotulo="🏷 Categoria" onPick={v => { const c = v === NOVA_CAT ? pedirNovaCategoria(espLote) : v;
+                if (c) emLote(r => r.secao === "receita" ? {} : { categoria:c }, `Categoria → ${c}`); }}>
               {listaCatLote.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value={NOVA_CAT}>＋ Nova categoria…</option>
             </SelLote>
           )}
           <button onClick={excluirSelecionados} style={{ background:"#FFE3E3", color:P.vermelho, border:"none", borderRadius:9,
