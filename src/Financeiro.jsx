@@ -1290,16 +1290,32 @@ function FinanceiroApp({ senha, sair }) {
     const ids = new Set(selecionados.map(r => r.id));
     setRows(rs => sortRows(rs.map(r => ids.has(r.id) ? marcar(normalize({ ...r, ...patchDe(r) })) : r)));
     setDestaque(ids);
+    alterados.current = new Set([...alterados.current, ...ids]);
     setMsg(`✅ ${aviso} em ${ids.size} lançamento${ids.size > 1 ? "s" : ""}.`);
   }
   function moverPara(secao) {
     const outro = espacoDe(secao) !== espaco;
     emLote(() => ({ secao }), `Movido para ${SECTIONS[secao].title}${outro ? ` (${ESPACOS[espacoDe(secao)].icone} ${ESPACOS[espacoDe(secao)].nome})` : ""}`);
-    if (outro) setSel(new Set());
+    setSel(new Set());
   }
   const comCategoria = selecionados.filter(r => r.secao !== "receita");
   const listaCatLote = comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "pessoal") ? OPTS.grupo
     : comCategoria.length && comCategoria.every(r => espacoDe(r.secao) === "empresa") ? OPTS.categoria : null;
+
+  // "✓ Concluir": termina a ação em lote e desmarca tudo (também com Esc)
+  const alterados = useRef(new Set());
+  function concluir() {
+    const n = [...alterados.current].filter(id => sel.has(id)).length;
+    setSel(new Set());
+    if (n) setMsg(`✅ Pronto! ${n} lançamento${n > 1 ? "s" : ""} atualizado${n > 1 ? "s" : ""}.`);
+  }
+  useEffect(() => { if (!sel.size) alterados.current = new Set(); }, [sel]);
+  useEffect(() => {
+    if (!sel.size) return;
+    const tecla = e => { if (e.key === "Escape") concluir(); };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  });
 
   // limpa a seleção ao trocar de mês/ano
   useEffect(() => { setSel(new Set()); }, [aba, ano]);
@@ -1678,8 +1694,8 @@ function FinanceiroApp({ senha, sair }) {
           )}
           <button onClick={excluirSelecionados} style={{ background:"#FFE3E3", color:P.vermelho, border:"none", borderRadius:9,
             padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>🗑 Excluir</button>
-          <button onClick={() => setSel(new Set())} style={{ background:"transparent", color:"#fff", border:"1px solid rgba(255,255,255,.35)",
-            borderRadius:9, padding:"7px 12px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>Limpar</button>
+          <button onClick={concluir} title="Termina e desmarca tudo (Esc)" style={{ background:"#1E9E4A", color:"#fff", border:"none",
+            borderRadius:9, padding:"7px 16px", fontFamily:FONT, fontSize:13, fontWeight:800, cursor:"pointer" }}>✓ Concluir</button>
         </div>
       )}
     </div>
