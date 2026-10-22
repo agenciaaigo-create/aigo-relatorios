@@ -97,8 +97,27 @@ function pedirNovaCategoria(esp) {
   CAT_EXTRA[esp] = [...CAT_EXTRA[esp], novo];
   return novo;
 }
+// Opções criadas nas listas coloridas (Forma, Serviço, Fotografia, categorias do Pessoal)
+const CHIP_EXTRA = { forma:[], servico:[], tipo:[], classeCasa:[], classeExtra:[] };
+const CHIP_ONDE = { servico:"receita", tipo:"receita", classeCasa:"p_casa", classeExtra:"p_extra" };
+const CHIP_PERGUNTA = { forma:"Nova forma de pagamento:", servico:"Novo serviço:", tipo:"Nova opção de Fotografia:",
+  classeCasa:"Nova categoria (Gastos Casa):", classeExtra:"Nova categoria (Parcelas e Gastos Extras):" };
+const opcoesChip = f => [...OPTS[f], ...(CHIP_EXTRA[f] || [])];
+function pedirNovaOpcao(f) {
+  const nome = (window.prompt(CHIP_PERGUNTA[f] || "Nova opção:") || "").trim().replace(/\s+/g, " ");
+  if (!nome) return "";
+  const existe = opcoesChip(f).find(o => o.toLowerCase() === nome.toLowerCase() || (chipOf(f, o)?.[3] || "").toLowerCase() === nome.toLowerCase());
+  if (existe) return existe;
+  CHIP_EXTRA[f] = [...CHIP_EXTRA[f], nome];
+  return nome;
+}
+
 // Recalcula as categorias criadas a partir dos lançamentos
 function atualizarCatExtra(rows) {
+  Object.keys(CHIP_EXTRA).forEach(f => {
+    const achadas = new Set(rows.filter(r => r[f] && (!CHIP_ONDE[f] || r.secao === CHIP_ONDE[f]) && !OPTS[f].includes(r[f])).map(r => r[f]));
+    CHIP_EXTRA[f] = [...new Set([...CHIP_EXTRA[f].filter(o => achadas.has(o)), ...achadas])];
+  });
   const out = { empresa:new Set(), pessoal:new Set() };
   rows.forEach(r => {
     if (!r.categoria || r.secao === "receita") return;
@@ -256,7 +275,8 @@ function catPropria(secao, c) {
 }
 function normalize(r) {
   const secao = SECTIONS[r.secao] ? r.secao : "variavel";
-  const pick = (k, def = "") => OPTS[k].includes(r[k]) ? r[k] : def;
+  // aceita as opções padrão e as criadas por você (texto livre); a IA é filtrada antes, em fromAI
+  const pick = (k, def = "") => OPTS[k].includes(r[k]) || (typeof r[k] === "string" && r[k].trim() && k in CHIP_EXTRA) ? r[k] : def;
   return {
     id: r.id || uid(),
     secao,
@@ -270,8 +290,8 @@ function normalize(r) {
       : catPropria(secao, r.categoria) ? r.categoria
       : espacoDe(secao) === "pessoal" ? sugerirGrupo(r.descricao, r.classeExtra || r.classe)
       : sugerirCategoria(r.descricao, r.categoria),
-    classeCasa: secao === "p_casa" ? (OPTS.classeCasa.includes(r.classeCasa) ? r.classeCasa : OPTS.classeCasa.includes(r.classe) ? r.classe : "Fixo") : "",
-    classeExtra: secao === "p_extra" ? (OPTS.classeExtra.includes(r.classeExtra) ? r.classeExtra : OPTS.classeExtra.includes(r.classe) ? r.classe : "pessoal") : "",
+    classeCasa: secao === "p_casa" ? (pick("classeCasa") || (OPTS.classeCasa.includes(r.classe) ? r.classe : "Fixo")) : "",
+    classeExtra: secao === "p_extra" ? (pick("classeExtra") || (OPTS.classeExtra.includes(r.classe) ? r.classe : "pessoal")) : "",
     servico: secao === "receita" ? pick("servico", "Social Media") : "",
     tipo: secao === "receita" ? pick("tipo", "") : "",
     info: r.info || "",
@@ -286,7 +306,8 @@ function fromAI(t, mesAtual) {
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(t.data || "");
   const sec = SECTIONS[t.secao] ? t.secao : "variavel";
   const categoria = listaCat(espacoDe(sec)).includes(t.categoria) ? t.categoria : "";
-  return normalize({ ...t, categoria, mes: ok ? t.data.slice(0, 7) : mesAtual, dia: ok ? +t.data.slice(8, 10) : "" });
+  const chips = Object.fromEntries(Object.keys(CHIP_EXTRA).map(f => [f, opcoesChip(f).includes(t[f]) ? t[f] : ""]));
+  return normalize({ ...t, ...chips, categoria, mes: ok ? t.data.slice(0, 7) : mesAtual, dia: ok ? +t.data.slice(8, 10) : "" });
 }
 
 function load() {
@@ -382,15 +403,20 @@ function MoneyCell({ value, onChange }) {
 
 function ChipSelect({ field, value, onChange }) {
   const o = chipOf(field, value);
-  const [, bg, fg] = o || [null, "#F1EFF6", P.suave];
+  const [, bg, fg] = o || (value ? [null, "#E6DEF7", "#4A3F6B"] : [null, "#F1EFF6", P.suave]);   // opção criada: lilás neutro
   return (
     <div style={{ position:"relative", padding:"2px 4px", maxWidth:130 }}>
-      <select className="fin-cell" value={value} onChange={e => onChange(e.target.value)}
+      <select className="fin-cell" value={value} onChange={e => {
+          const v = e.target.value === NOVA_CAT ? pedirNovaOpcao(field) : e.target.value;
+          if (v) onChange(v); else e.target.value = value;
+        }}
         style={{ appearance:"none", WebkitAppearance:"none", width:"100%", border:"none", cursor:"pointer",
           background:bg, color:fg, fontFamily:FONT, fontSize:10.5, fontWeight:600,
           padding:"3px 18px 3px 8px", borderRadius:100, outline:"none" }}>
         {field === "tipo" && <option value="">—</option>}
         {CHIPS[field].map(([v, , , label]) => <option key={v} value={v}>{label || v}</option>)}
+        {(CHIP_EXTRA[field] || []).map(v => <option key={v} value={v}>{v}</option>)}
+        {field in CHIP_EXTRA && <option value={NOVA_CAT}>＋ Novo…</option>}
       </select>
       <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:7,
         color:fg, pointerEvents:"none" }}>▼</span>
@@ -1385,7 +1411,8 @@ function FinanceiroApp({ senha, sair }) {
       const images = await Promise.all(files.map(f => compressImage(f, files.length)));
       const resp = await fetch("/api/ler-financeiro", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: { ...OPTS, categoria: listaCat("empresa"), grupo: listaCat("pessoal") }, espaco }),
+        body: JSON.stringify({ images, hoje: hojeISO(), mesAberto: mes || mesKey(ano, now.getMonth()), clientes: CLIENTS, opcoes: { ...OPTS, ...Object.fromEntries(Object.keys(CHIP_EXTRA).map(f => [f, opcoesChip(f)])),
+          categoria: listaCat("empresa"), grupo: listaCat("pessoal") }, espaco }),
       });
       if (resp.status === 413) throw new Error("Imagens muito grandes. Tente com menos prints por vez.");
       if (resp.status === 401) { sair(); return; }
@@ -1735,8 +1762,10 @@ function FinanceiroApp({ senha, sair }) {
               </optgroup>
             ))}
           </SelLote>
-          <SelLote rotulo="💳 Forma" onPick={v => emLote(() => ({ forma:v }), `Forma de pagamento → ${v}`)}>
-            {OPTS.forma.map(f => <option key={f} value={f}>{f}</option>)}
+          <SelLote rotulo="💳 Forma" onPick={v => { const f = v === NOVA_CAT ? pedirNovaOpcao("forma") : v;
+              if (f) emLote(() => ({ forma:f }), `Forma de pagamento → ${f}`); }}>
+            {opcoesChip("forma").map(f => <option key={f} value={f}>{f}</option>)}
+            <option value={NOVA_CAT}>＋ Nova forma…</option>
           </SelLote>
           <SelLote rotulo="✓ Status" onPick={v => emLote(() => ({ status:v }), `Status → ${v === "pago" ? "Pago" : "Não pago"}`)}>
             <option value="pago">Pago</option><option value="nao_pago">Não pago</option>
