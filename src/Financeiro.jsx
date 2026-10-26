@@ -298,7 +298,47 @@ function normalize(r) {
     upd: Number(r.upd) || 0,     // hora da última alteração (para sincronizar)
     disp: r.disp || "",          // aparelho onde foi criado
     ord: Number(r.ord) || 0,     // ordem de criação (mantém a ordem dentro do mesmo dia)
+    auto: !!r.auto,              // parcela criada automaticamente (some quando você mexe nela)
   };
+}
+
+// ── Parcelas que andam sozinhas ────────────────────────────────────────────
+// Para cada parcela (Info "3/6"), cria as próximas nos meses seguintes como "Não pago".
+// Só preenche meses futuros (depois do mês atual), até 12 meses à frente, e nunca duplica:
+// se o mês já tem um lançamento com o mesmo nome e o mesmo total de parcelas, não cria.
+const semAcento = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const mesNum = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
+const numMes = n => `${Math.floor(n / 12)}-${pad(n % 12 + 1)}`;
+const parcelaDe = r => { const m = /(\d+)\s*\/\s*(\d+)/.exec(r.info || ""); return m && +m[2] > 1 && +m[1] >= 1 ? { n:+m[1], de:+m[2], larg:m[1].length } : null; };
+// Uma "série" é uma compra parcelada: mesmo lado, mesmo nome, mesmo total e mesmo mês de início
+// (assim duas compras na mesma loja, em meses diferentes, não se misturam)
+const serieDe = r => { const p = parcelaDe(r); return `${espacoDe(r.secao)}|${semAcento(r.descricao)}|${p.de}|${mesNum(r.mes) - p.n}`; };
+const idAuto = (k, mes) => "p" + Array.from(k).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36) + "-" + mes;
+function gerarParcelas(rows, apagados, hojeMes) {
+  const apag = new Set(apagados.map(a => a.id));
+  const ultima = new Map(), meses = new Map();   // série → linha mais recente; série → meses que já têm
+  rows.forEach(r => {
+    const p = parcelaDe(r);
+    if (!p || !r.descricao.trim()) return;
+    const k = serieDe(r);
+    if (!meses.has(k)) meses.set(k, new Set());
+    meses.get(k).add(r.mes);
+    const u = ultima.get(k);
+    if (!u || mesNum(r.mes) > mesNum(u.mes) || (r.mes === u.mes && p.n > parcelaDe(u).n)) ultima.set(k, r);
+  });
+  const novos = [], agora = Date.now(), limite = mesNum(hojeMes) + 12;
+  for (const [k, r] of ultima) {
+    const p = parcelaDe(r), base = mesNum(r.mes);
+    for (let n = p.n + 1, m = base + 1; n <= p.de && m <= limite; n++, m++) {
+      const mes = numMes(m);
+      if (m <= mesNum(hojeMes) || meses.get(k).has(mes)) continue;
+      const id = idAuto(k, mes);
+      if (apag.has(id)) continue;
+      novos.push(normalize({ ...r, id, mes, status:"nao_pago", auto:true, upd:agora, disp:DISP,
+        info: (r.info || "").replace(/(\d+)(\s*\/\s*)(\d+)/, `${String(n).padStart(p.larg, "0")}$2$3`) }));
+    }
+  }
+  return novos;
 }
 
 // Converte um lançamento vindo da IA (com data AAAA-MM-DD)
@@ -520,6 +560,12 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
                   else if (col.kind === "chip") cell = <ChipSelect field={c} value={r[c]} onChange={set}/>;
                   else if (col.kind === "cat") cell = <CatSelect value={r.categoria} onChange={set} espaco={espacoDe(secao)}/>;
                   else cell = <TextCell value={r[f]} onChange={set} bold={c === "descricao"} placeholder={c === "descricao" ? "Descrição" : ""}/>;
+                  if (c === "descricao" && r.auto) cell = (
+                    <div style={{ display:"flex", alignItems:"center" }}>
+                      <div style={{ flex:1, minWidth:0 }}>{cell}</div>
+                      <span title="Parcela criada automaticamente. Some quando você mexer nela." style={{ background:"#E4D7FA", color:P.roxo2,
+                        borderRadius:999, padding:"0 4px", fontSize:9, marginRight:3, whiteSpace:"nowrap" }}>🔁</span>
+                    </div>);
                   return <td key={c} style={{ ...td, ...fundo(r) }}>{cell}</td>;
                 })}
                 <td style={{ ...td, borderRight:"none", textAlign:"center", ...fundo(r) }}>
@@ -1316,7 +1362,7 @@ function FinanceiroApp({ senha, sair }) {
   }, [rowsEsp, doMes, aba, ano, mes]);
 
   // ── edição ──
-  const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? marcar(normalize({ ...r, ...patch })) : r));
+  const edit = (id, patch) => setRows(rs => rs.map(r => r.id === id ? marcar(normalize({ ...r, ...patch, auto:false })) : r));
   const add = secao => setRows(rs => [...rs, marcar(normalize({ secao, mes, dia:"", status: secao === "receita" ? "pago" : "nao_pago" }))]);
   const registrarApagados = ids => { const agora = Date.now(); setApagados(ap => [...ap.filter(a => !ids.includes(a.id)), ...ids.map(id => ({ id, upd:agora }))]); };
   const remove = id => {
@@ -1397,6 +1443,15 @@ function FinanceiroApp({ senha, sair }) {
     return () => window.removeEventListener("keydown", tecla);
   });
 
+  // Parcelas automáticas: 2,5 s depois da última mudança, cria as próximas parcelas que faltam
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const novos = gerarParcelas(rows, apagados, hojeISO().slice(0, 7));
+      if (novos.length) setRows(rs => { const ids = new Set(rs.map(r => r.id)); const n = novos.filter(r => !ids.has(r.id)); return n.length ? sortRows([...rs, ...n]) : rs; });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [rows, apagados]);
+
   // limpa a seleção ao trocar de mês/ano
   useEffect(() => { setSel(new Set()); }, [aba, ano]);
 
@@ -1433,10 +1488,16 @@ function FinanceiroApp({ senha, sair }) {
 
   function confirmar() {
     const existentes = new Set(rows.map(chave));
-    const novos = review.filter(r => !existentes.has(chave(r))).map((r, i) => marcar({ ...r, ord: Date.now() + i }));
-    const repetidos = review.length - novos.length;
-    setRows(rs => sortRows([...rs, ...novos]));
-    setDestaque(new Set(novos.map(r => r.id)));
+    // parcela que já está no mês (ex.: criada automaticamente) → só atualiza valor, status, forma e dia
+    const mesmaParcela = r => { const p = parcelaDe(r); if (!p) return null;
+      return rows.find(x => x.mes === r.mes && parcelaDe(x)?.n === p.n && serieDe(x) === serieDe(r)) || null; };
+    const atualizar = new Map();
+    review.forEach(r => { if (existentes.has(chave(r))) return; const x = mesmaParcela(r); if (x) atualizar.set(x.id, r); });
+    const novos = review.filter(r => !existentes.has(chave(r)) && !mesmaParcela(r)).map((r, i) => marcar({ ...r, ord: Date.now() + i }));
+    const repetidos = review.length - novos.length - atualizar.size;
+    setRows(rs => sortRows([...rs.map(x => { const r = atualizar.get(x.id);
+      return r ? marcar(normalize({ ...x, valor:r.valor, status:r.status, forma:r.forma, dia:r.dia || x.dia, auto:false })) : x; }), ...novos]));
+    setDestaque(new Set([...novos.map(r => r.id), ...atualizar.keys()]));
     const first = novos[0];
     if (first) { const [y, m] = first.mes.split("-"); setAno(+y); setAba(+m - 1); setEspaco(espacoDe(first.secao)); }
     const porMes = {};
@@ -1447,7 +1508,8 @@ function FinanceiroApp({ senha, sair }) {
     const nEmp = novos.filter(r => espacoDe(r.secao) === "empresa").length, nPes = novos.length - nEmp;
     const lados = nEmp && nPes ? ` — ${nEmp} na 🏢 Empresa e ${nPes} no 🏠 Pessoal` : "";
     setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${lados}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
-      + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : ""));
+      + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : "")
+      + (atualizar.size ? ` ${atualizar.size} parcela${atualizar.size > 1 ? "s" : ""} já estava${atualizar.size > 1 ? "m" : ""} no mês e ${atualizar.size > 1 ? "foram atualizadas" : "foi atualizada"} (sem duplicar).` : ""));
     setReview([]);
   }
 
