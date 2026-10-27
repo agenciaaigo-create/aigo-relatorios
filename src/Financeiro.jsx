@@ -1648,10 +1648,11 @@ function FinanceiroApp({ senha, sair }) {
             return <div title={st[3]} style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100,
               whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>;
           })()}
-          <button onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} title={ocultar ? "Mostrar os valores" : "Ocultar os valores do topo"}
-            style={{ border:`1px solid ${P.lilas}`, background: ocultar ? P.roxo : P.papel, color: ocultar ? "#fff" : P.roxo, borderRadius:8,
-              padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
-            {ocultar ? "🙈 Mostrar" : "👁 Ocultar"}</button>
+          <button onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} aria-label={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
+            title={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
+            style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8, width:34, height:31,
+              display:"inline-flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, flex:"0 0 auto" }}>
+            <IconeOlho fechado={ocultar}/></button>
           <button onClick={sair} title="Sair (pede a senha de novo)" style={{ border:`1px solid ${P.lilas}`, background:P.papel,
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
@@ -1915,6 +1916,17 @@ function FinanceiroApp({ senha, sair }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Ícone de olho (traço fino), aberto ou riscado
+function IconeOlho({ fechado }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
+      <circle cx="12" cy="12" r="3"/>
+      {fechado && <line x1="3" y1="3" x2="21" y2="21"/>}
+    </svg>
   );
 }
 
