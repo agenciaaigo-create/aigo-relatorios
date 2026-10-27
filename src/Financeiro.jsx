@@ -705,22 +705,56 @@ function agrupar(rows, modo) {
   return map;
 }
 
-function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, rotulo = "💸 Para onde foi o dinheiro", listaGrupos, onMudarGrupo }) {
+// Comparar com o mês passado: placar no topo do "Para onde foi"
+function ResumoComparar({ antes, agora, nomeAntes, nomeAgora = "este mês" }) {
+  const dif = agora - antes, menos = dif < 0, pct = antes ? Math.abs(dif) / antes * 100 : 0;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:12 }}>
+      <div style={{ background:P.lilasClaro, borderRadius:12, padding:"6px 12px" }}>
+        <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{nomeAntes}</div>
+        <div style={{ fontSize:17, fontWeight:800, color:P.suave }}>{brl(antes)}</div>
+      </div>
+      <span style={{ fontWeight:800, color:"#B9A8E8" }}>→</span>
+      <div style={{ background:P.roxo, borderRadius:12, padding:"6px 12px", color:"#fff" }}>
+        <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", opacity:.8, textTransform:"uppercase" }}>{nomeAgora}</div>
+        <div style={{ fontSize:17, fontWeight:800 }}>{brl(agora)}</div>
+      </div>
+      {antes > 0 && <span style={{ background: menos ? "#E3F4E8" : "#FBE3E3", color: menos ? P.verde : P.vermelho, borderRadius:999,
+        padding:"5px 12px", fontSize:12, fontWeight:800 }}>{dif === 0 ? "= igual" : `${menos ? "▼" : "▲"} ${brl(Math.abs(dif))} (${pct.toFixed(0)}% ${menos ? "a menos" : "a mais"})`}</span>}
+    </div>
+  );
+}
+function PilulaDif({ antes, agora }) {
+  const d = agora - antes;
+  const [bg, fg, txt] = !antes && agora ? ["#FFF1C2", "#8A6500", "novo"] : !agora && antes ? ["#E3F4E8", P.verde, "zerou"]
+    : Math.abs(d) < .5 ? ["#F1EFF6", P.suave, "= igual"] : d > 0 ? ["#FBE3E3", P.vermelho, `▲ ${brl(d).replace("R$ ", "")}`] : ["#E3F4E8", P.verde, `▼ ${brl(-d).replace("R$ ", "")}`];
+  return <span style={{ background:bg, color:fg, borderRadius:999, padding:"2px 8px", fontSize:10.5, fontWeight:800, minWidth:62, textAlign:"center", whiteSpace:"nowrap" }}>{txt}</span>;
+}
+
+function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, atualNome, rotulo = "💸 Para onde foi o dinheiro", listaGrupos, onMudarGrupo }) {
   const [modo, setModo] = useState("categoria");
   const [aberto, setAberto] = useState(null);
+  const [comparar, setComparar] = useState(false);
+  const cmp = comparar && !!compararCom;
   const total = rows.reduce((s, r) => s + r.valor, 0);
+  const totalAnt = anteriores.reduce((s, r) => s + r.valor, 0);
   const grupos = useMemo(() => {
     const atual = agrupar(rows, modo), ant = agrupar(anteriores, modo);
-    let list = Object.values(atual).filter(g => g.valor > 0).sort((a, b) => b.valor - a.valor)
-      .map(g => ({ ...g, anterior: ant[g.nome.toLowerCase()]?.valor || 0 }));
+    // no modo comparar, entram também as categorias que só existiam no mês passado
+    if (cmp) Object.entries(ant).forEach(([k, g]) => { if (!atual[k] && g.valor > 0) atual[k] = { nome:g.nome, valor:0, itens:[] }; });
+    let list = Object.values(atual).filter(g => g.valor > 0 || cmp).sort((a, b) => b.valor - a.valor || 0)
+      .map(g => ({ ...g, anterior: ant[g.nome.toLowerCase()]?.valor || 0 }))
+      .filter(g => g.valor > 0 || g.anterior > 0)
+      .sort((a, b) => (b.valor || b.anterior * .001) - (a.valor || a.anterior * .001));
     if (modo === "item" && list.length > 8) {
       const resto = list.slice(7);
       list = [...list.slice(0, 7), { nome:`Outros (${resto.length})`, valor:resto.reduce((s, g) => s + g.valor, 0),
         itens:resto.flatMap(g => g.itens), anterior:0, outros:true }];
     }
     return list.map((g, i) => ({ ...g, cor: g.outros ? "#B9B4C7" : (MODOS[modo].cor?.(g.nome) || COR_ITEM[i % COR_ITEM.length]) }));
-  }, [rows, anteriores, modo]);
-  const mx = Math.max(1, ...grupos.map(g => g.valor));
+  }, [rows, anteriores, modo, cmp]);
+  const mx = Math.max(1, ...grupos.map(g => cmp ? Math.max(g.valor, g.anterior) : g.valor));
+  const nomeAtual = atualNome || titulo || "este mês";
   const botao = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff",
     border:"1px solid rgba(255,255,255,.22)", borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
 
@@ -728,15 +762,25 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, rotulo = "�
     <div style={caixaBloco}>
       <Cabeca titulo={`${rotulo}${titulo ? " · " + titulo : ""}`} sub={total ? `${brl(total)} em ${rows.length} gastos` : ""}>
         {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={botao(modo === k)}>{m.label}</button>)}
+        {compararCom && <button onClick={() => setComparar(c => !c)} aria-pressed={cmp}
+          style={{ ...botao(cmp), ...(cmp ? {} : { background:"#F6C343", color:"#3B1C7E", border:"none" }) }}>⚖️ vs {compararCom}</button>}
       </Cabeca>
       {!total ? <div style={{ padding:"30px 16px", textAlign:"center", fontSize:12, color:P.suave }}>Nenhum gasto lançado neste período.</div> : (
         <div style={{ padding:"14px 16px" }}>
-          <div style={{ display:"flex", gap:2, height:22 }}>
-            {grupos.map(g => (
-              <div key={g.nome} title={`${g.nome}: ${brl(g.valor)}`} onClick={() => setAberto(a => a === g.nome ? null : g.nome)}
-                style={{ width:`${g.valor / total * 100}%`, background:g.cor, borderRadius:3, cursor:"pointer", minWidth:3 }}/>
-            ))}
-          </div>
+          {cmp && <ResumoComparar antes={totalAnt} agora={total} nomeAntes={compararCom} nomeAgora={nomeAtual}/>}
+          {(cmp ? [["antes", totalAnt], ["agora", total]] : [["agora", total]]).map(([qual, tot]) => (
+            <div key={qual} style={{ display:"flex", alignItems:"center", gap:8, marginBottom: cmp ? 5 : 0 }}>
+              {cmp && <span style={{ width:58, fontSize:10.5, fontWeight:800, color: qual === "antes" ? P.suave : P.roxo, textTransform:"capitalize" }}>
+                {qual === "antes" ? compararCom.slice(0, 3) : nomeAtual.slice(0, 3)}</span>}
+              <div style={{ display:"flex", gap:2, height: cmp ? 16 : 22, flex:1 }}>
+                {grupos.filter(g => (qual === "antes" ? g.anterior : g.valor) > 0).map(g => {
+                  const v = qual === "antes" ? g.anterior : g.valor;
+                  return <div key={g.nome} title={`${g.nome}: ${brl(v)}`} onClick={() => setAberto(a => a === g.nome ? null : g.nome)}
+                    style={{ width:`${v / (tot || 1) * 100}%`, background:g.cor, opacity: qual === "antes" ? .45 : 1, borderRadius:3, cursor:"pointer", minWidth:3 }}/>;
+                })}
+              </div>
+            </div>
+          ))}
           <div style={{ marginTop:6 }}>
             {grupos.map(g => {
               const open = aberto === g.nome;
@@ -746,15 +790,29 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, rotulo = "�
                     <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12 }}>
                       <span style={{ width:10, height:10, borderRadius:3, background:g.cor, flex:"0 0 auto" }}/>
                       <b style={{ fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.nome}</b>
-                      <span style={{ color:P.suave, fontSize:11 }}>{g.itens.length}×</span>
-                      <span style={{ marginLeft:"auto", color:P.suave, fontSize:11 }}>{(g.valor / total * 100).toFixed(0)}%</span>
-                      <b style={{ minWidth:96, textAlign:"right", fontSize:12.5 }}>{brl(g.valor)}</b>
-                      {compararCom && <span style={{ minWidth:58, textAlign:"right" }}>{!g.outros && <Variacao atual={g.valor} anterior={g.anterior} bomSubir={false} curto/>}</span>}
+                      {!cmp && <span style={{ color:P.suave, fontSize:11 }}>{g.itens.length}×</span>}
+                      {cmp ? <>
+                        <span style={{ marginLeft:"auto", display:"flex", alignItems:"baseline", gap:6, whiteSpace:"nowrap" }}>
+                          <span className="fin-nome" style={{ color:P.suave, fontSize:11 }}>{brl(g.anterior)} →</span>
+                          <b style={{ fontSize:12.5 }}>{brl(g.valor)}</b>
+                        </span>
+                        <PilulaDif antes={g.anterior} agora={g.valor}/>
+                      </> : <>
+                        <span style={{ marginLeft:"auto", color:P.suave, fontSize:11 }}>{(g.valor / total * 100).toFixed(0)}%</span>
+                        <b style={{ minWidth:96, textAlign:"right", fontSize:12.5 }}>{brl(g.valor)}</b>
+                        {compararCom && <span style={{ minWidth:58, textAlign:"right" }}>{!g.outros && <Variacao atual={g.valor} anterior={g.anterior} bomSubir={false} curto/>}</span>}
+                      </>}
                       <span style={{ color:P.suave, fontSize:8, width:10 }}>{open ? "▲" : "▼"}</span>
                     </div>
+                    {cmp ? (
+                      <div style={{ margin:"5px 0 0 18px", display:"flex", flexDirection:"column", gap:2 }}>
+                        <div style={{ height:5, width:`${g.anterior / mx * 100}%`, background:g.cor, opacity:.35, borderRadius:"0 4px 4px 0", minWidth: g.anterior ? 3 : 0 }}/>
+                        <div style={{ height:7, width:`${g.valor / mx * 100}%`, background:g.cor, borderRadius:"0 4px 4px 0", minWidth: g.valor ? 3 : 0 }}/>
+                      </div>
+                    ) : (
                     <div style={{ height:6, background:P.lilasClaro, borderRadius:4, margin:"5px 0 0 18px" }}>
                       <div style={{ height:"100%", width:`${g.valor / mx * 100}%`, background:g.cor, borderRadius:4 }}/>
-                    </div>
+                    </div>)}
                   </div>
                   {open && (
                     <div style={{ padding:"0 10px 8px 24px" }}>
@@ -779,7 +837,9 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, rotulo = "�
               );
             })}
           </div>
-          {compararCom && <div style={{ fontSize:10.5, color:P.suave, marginTop:8 }}>▲▼ comparado com {compararCom}. Clique numa categoria para ver os gastos.</div>}
+          {compararCom && <div style={{ fontSize:10.5, color:P.suave, marginTop:8 }}>{cmp
+            ? <>Barra clarinha = {compararCom} · barra forte = {nomeAtual}. Clique numa categoria para ver os gastos.</>
+            : <>▲▼ comparado com {compararCom}. Clique numa categoria para ver os gastos.</>}</div>}
         </div>
       )}
     </div>
@@ -1057,7 +1117,7 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
         <span style={{ flex:1, height:1, background:P.lilas }}/>
       </div>
       <div className="fin-2col">
-        <ParaOndeFoi key={mes} rows={gastos} anteriores={analise.anteriores} compararCom={analise.nomeAnt}
+        <ParaOndeFoi key={mes} rows={gastos} anteriores={analise.anteriores} compararCom={analise.nomeAnt} atualNome={MESES[aba]?.toLowerCase()}
           rotulo="💸 Para onde foi o meu dinheiro" listaGrupos={listaCat("pessoal")} onMudarGrupo={mudarGrupo}/>
         <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
           <ParcelasAndamento gastos={gastos}/>
@@ -1788,7 +1848,7 @@ function FinanceiroApp({ senha, sair }) {
               <span style={{ flex:1, height:1, background:P.lilas }}/>
             </div>
             <div className="fin-2col">
-              <ParaOndeFoi key={mes} rows={analise.gastosMes} anteriores={analise.anteriores} compararCom={analise.nomeAnt}/>
+              <ParaOndeFoi key={mes} rows={analise.gastosMes} anteriores={analise.anteriores} compararCom={analise.nomeAnt} atualNome={MESES[aba]?.toLowerCase()}/>
               <div style={{ display:"flex", flexDirection:"column", gap:14, minWidth:0 }}>
                 <UltimosMeses serie={analise.serie} onPick={m => { const d = analise.serie.find(x => x.mes === m); if (d) { setAno(d.ano); setAba(d.mes); } }}/>
                 <DeOndeVem receitas={bySec("receita")}/>
