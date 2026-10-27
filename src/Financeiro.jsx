@@ -249,6 +249,8 @@ body{background:${P.bg}}
 .fin-row:hover .fin-del{opacity:1}
 .fin-del{opacity:.25}
 @media (hover:none){.fin-del{opacity:.6}}
+.fin-ocultar .fin-oculto{filter:blur(9px);user-select:none;-webkit-user-select:none;transition:filter .2s}
+.fin-oculto{transition:filter .2s}
 .fin-tabs::-webkit-scrollbar{height:0}`;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -629,8 +631,8 @@ function Kpi({ label, value, sub, color }) {
     <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"14px 16px",
       borderTop:`4px solid ${color}` }}>
       <div style={{ fontSize:10, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
-      <div style={{ fontSize:22, fontWeight:900, color:P.tinta, marginTop:6, letterSpacing:"-.01em" }}>{value}</div>
-      {sub && <div style={{ fontSize:11, color:P.suave, marginTop:4 }}>{sub}</div>}
+      <div className="fin-oculto" style={{ fontSize:22, fontWeight:900, color:P.tinta, marginTop:6, letterSpacing:"-.01em" }}>{value}</div>
+      {sub && <div className="fin-oculto" style={{ fontSize:11, color:P.suave, marginTop:4 }}>{sub}</div>}
     </div>
   );
 }
@@ -677,11 +679,11 @@ function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha }) {
       display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:8, minWidth:0 }}>
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
-        <div style={{ fontSize:21, fontWeight:900, color:cor || P.tinta, marginTop:4, whiteSpace:"nowrap" }}>{value}</div>
-        <div style={{ marginTop:3 }}>{variacao}</div>
-        {sub && <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{sub}</div>}
+        <div className="fin-oculto" style={{ fontSize:21, fontWeight:900, color:cor || P.tinta, marginTop:4, whiteSpace:"nowrap" }}>{value}</div>
+        <div className="fin-oculto" style={{ marginTop:3 }}>{variacao}</div>
+        {sub && <div className="fin-oculto" style={{ fontSize:11, color:P.suave, marginTop:2 }}>{sub}</div>}
       </div>
-      {serie && <Linha valores={serie} cor={corLinha}/>}
+      {serie && <div className="fin-oculto"><Linha valores={serie} cor={corLinha}/></div>}
     </div>
   );
 }
@@ -992,7 +994,7 @@ function Avisos({ avisos }) {
       {avisos.map((a, i) => (
         <div key={i} style={{ background:P.papel, border:`1px solid ${P.linha}`, borderLeft:`4px solid ${a.cor}`, borderRadius:10, padding:"8px 12px", minWidth:0 }}>
           <div style={{ fontSize:9.5, fontWeight:800, color:a.cor, textTransform:"uppercase", letterSpacing:".07em" }}>🔔 {a.titulo}</div>
-          <div style={{ fontSize:11.5, marginTop:3, lineHeight:1.35 }}>{a.texto}</div>
+          <div className="fin-oculto" style={{ fontSize:11.5, marginTop:3, lineHeight:1.35 }}>{a.texto}</div>
         </div>
       ))}
     </div>
@@ -1288,6 +1290,9 @@ function FinanceiroApp({ senha, sair }) {
   const [aba, setAba] = useState(now.getMonth());           // 0-11 ou "geral"
   const [espaco, setEspaco] = useState(() => { try { return localStorage.getItem("aigo-fin-espaco") === "pessoal" ? "pessoal" : "empresa"; } catch { return "empresa"; } });
   useEffect(() => { try { localStorage.setItem("aigo-fin-espaco", espaco); } catch {} }, [espaco]);
+  // 👁 Ocultar valores do topo (fica lembrado neste aparelho)
+  const [ocultar, setOcultar] = useState(() => { try { return localStorage.getItem("aigo-fin-ocultar") === "1"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-ocultar", ocultar ? "1" : "0"); } catch {} }, [ocultar]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
   atualizarCatExtra(review.length ? [...rows, ...review] : rows);   // categorias criadas (vêm dos lançamentos)
@@ -1612,7 +1617,7 @@ function FinanceiroApp({ senha, sair }) {
   });
 
   return (
-    <div style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}>
+    <div className={ocultar ? "fin-ocultar" : ""} style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}>
       <style>{CSS}</style>
 
       {/* topo */}
@@ -1643,6 +1648,10 @@ function FinanceiroApp({ senha, sair }) {
             return <div title={st[3]} style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100,
               whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>;
           })()}
+          <button onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} title={ocultar ? "Mostrar os valores" : "Ocultar os valores do topo"}
+            style={{ border:`1px solid ${P.lilas}`, background: ocultar ? P.roxo : P.papel, color: ocultar ? "#fff" : P.roxo, borderRadius:8,
+              padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+            {ocultar ? "🙈 Mostrar" : "👁 Ocultar"}</button>
           <button onClick={sair} title="Sair (pede a senha de novo)" style={{ border:`1px solid ${P.lilas}`, background:P.papel,
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
