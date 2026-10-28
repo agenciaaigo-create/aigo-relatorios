@@ -206,7 +206,7 @@ const GASTOS = ["fixo","variavel","extra"];
 Object.assign(SECTIONS, {
   p_fixo:  { title:"Gastos Fixos",             cols:["dia","descricao","valor","forma","status","info"],         copia:["dia","descricao","valor","forma","status","info"] },
   p_casa:  { title:"Gastos Casa",              cols:["dia","descricao","valor","classeCasa","status","forma","info"],   copia:["dia","descricao","valor","classeCasa","status","forma","info"] },
-  p_extra: { title:"Parcelas e Gastos Extras", cols:["dia","descricao","valor","forma","status","classeExtra","info"], copia:["dia","descricao","valor","forma","status","classeExtra","info"] },
+  p_extra: { title:"Parcelas e Gastos Extras", cols:["dia","descricao","valor","forma","status","categoria","info"], copia:["dia","descricao","valor","forma","status","categoria","info"] },
 });
 const ESPACOS = {
   empresa: { nome:"Empresa", icone:"🏢", secoes:["fixo","variavel","extra","receita"] },
@@ -386,7 +386,7 @@ const cellText = (r, c) => {
   if (col.kind === "calc") return num(col.calc(r));
   if (c === "valor") return num(r.valor);
   if (c === "status") return r.status === "pago" ? "Pago" : "Não pago";
-  if (c === "categoria") return CAT_PLANILHA[r.categoria] || "Extra";
+  if (c === "categoria") return espacoDe(r.secao) === "pessoal" ? (r.categoria || "") : (CAT_PLANILHA[r.categoria] || "Extra");
   return r[c] ?? "";
 };
 
@@ -1795,7 +1795,6 @@ function FinanceiroApp({ senha, sair }) {
                         <td style={td}><ChipSelect field="status" value={r.status} onChange={v => set({ status:v })}/></td>
                         <td style={td}>
                           {r.secao === "p_casa" && <ChipSelect field="classeCasa" value={r.classeCasa} onChange={v => set({ classeCasa:v })}/>}
-                          {r.secao === "p_extra" && <ChipSelect field="classeExtra" value={r.classeExtra} onChange={v => set({ classeExtra:v })}/>}
                           {r.secao !== "receita" && <CatSelect value={r.categoria} espaco={espacoDe(r.secao)} onChange={v => set({ categoria:v })}/>}
                           {r.secao === "receita" && <div style={{ display:"flex" }}>
                             <ChipSelect field="servico" value={r.servico} onChange={v => set({ servico:v })}/>
