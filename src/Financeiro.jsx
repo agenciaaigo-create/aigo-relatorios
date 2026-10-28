@@ -205,7 +205,7 @@ const GASTOS = ["fixo","variavel","extra"];
 // ── Pessoal: mesma ideia, com as tabelas da sua planilha pessoal ──
 Object.assign(SECTIONS, {
   p_fixo:  { title:"Gastos Fixos",             cols:["dia","descricao","valor","forma","status","info"],         copia:["dia","descricao","valor","forma","status","info"] },
-  p_casa:  { title:"Gastos Casa",              cols:["dia","descricao","valor","classeCasa","status","forma"],   copia:["dia","descricao","valor","classeCasa","status","forma","info"] },
+  p_casa:  { title:"Gastos Casa",              cols:["dia","descricao","valor","classeCasa","status","forma","info"],   copia:["dia","descricao","valor","classeCasa","status","forma","info"] },
   p_extra: { title:"Parcelas e Gastos Extras", cols:["dia","descricao","valor","forma","status","classeExtra","info"], copia:["dia","descricao","valor","forma","status","classeExtra","info"] },
 });
 const ESPACOS = {
