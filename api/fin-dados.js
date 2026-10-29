@@ -8,7 +8,20 @@ import { juntar } from "./_fin-merge.js";
 // Aceita o prefixo escolhido ao conectar o banco na Vercel (KV, STORAGE ou o padrão do Upstash)
 const URL_ = process.env.KV_REST_API_URL || process.env.STORAGE_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.STORAGE_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const ANOS = "fin:anos", APAGADOS = "fin:apagados", ano = a => `fin:ano:${a}`;
+const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", ano = a => `fin:ano:${a}`;
+
+// Cores escolhidas para as categorias: { "empresa|Investimentos": { cor:"#c2185b", upd:123 } }
+// Por categoria, fica a escolha mais recente (cor null = voltou à cor original).
+function juntarCores(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b || {})) {
+    if (!v || typeof v !== "object" || typeof k !== "string" || k.length > 200) continue;
+    const cor = v.cor === null || /^#[0-9a-fA-F]{6}$/.test(v.cor || "") ? v.cor : undefined;
+    if (cor === undefined) continue;
+    if (!out[k] || (Number(v.upd) || 0) > (Number(out[k].upd) || 0)) out[k] = { cor, upd: Number(v.upd) || 0 };
+  }
+  return out;
+}
 
 async function redis(comandos) {
   const r = await fetch(`${URL_}/pipeline`, {
@@ -25,10 +38,10 @@ async function redis(comandos) {
 const ler = v => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
 
 async function lerTudo() {
-  const [anosTxt, apagTxt] = await redis([["GET", ANOS], ["GET", APAGADOS]]);
+  const [anosTxt, apagTxt, coresTxt] = await redis([["GET", ANOS], ["GET", APAGADOS], ["GET", CORES]]);
   const anos = ler(anosTxt) || [];
   const partes = anos.length ? await redis(anos.map(a => ["GET", ano(a)])) : [];
-  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [] };
+  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [], cores: ler(coresTxt) || {} };
 }
 
 async function gravar({ rows, apagados }) {
@@ -58,9 +71,12 @@ export default async function handler(req, res) {
     const corpo = await lerCorpo(req);
     const chegou = { rows: Array.isArray(corpo.rows) ? corpo.rows : [], apagados: Array.isArray(corpo.apagados) ? corpo.apagados : [] };
     const nuvem = await lerTudo();
-    const junto = juntar(nuvem, chegou);
-    if (JSON.stringify(junto) !== JSON.stringify(nuvem)) await gravar(junto);
-    return res.status(200).json({ ...junto, quando: Date.now() });
+    const { cores: coresNuvem, ...dadosNuvem } = nuvem;
+    const junto = juntar(dadosNuvem, chegou);
+    if (JSON.stringify(junto) !== JSON.stringify(dadosNuvem)) await gravar(junto);
+    const cores = juntarCores(coresNuvem, corpo.cores && typeof corpo.cores === "object" ? corpo.cores : {});
+    if (JSON.stringify(cores) !== JSON.stringify(coresNuvem)) await redis([["SET", CORES, JSON.stringify(cores)]]);
+    return res.status(200).json({ ...junto, cores, quando: Date.now() });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao falar com a nuvem: " + (e.message || String(e)) });
   }

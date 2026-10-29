@@ -91,7 +91,14 @@ const CORES_EXTRA = ["#0f8b8d", "#a0522d", "#8e44ad", "#c2185b", "#5d7a1f", "#1f
 const CAT_LEGADO = ["Investimento", "Maringá"];
 const catPadrao = esp => esp === "pessoal" ? OPTS.grupo : OPTS.categoria;
 const listaCat = esp => { const p = catPadrao(esp); return [...p.filter(c => c !== "Outros"), ...CAT_EXTRA[esp], "Outros"]; };
-const corCat = n => COR_CAT[n] || CORES_EXTRA[Math.max(0, [...CAT_EXTRA.empresa, ...CAT_EXTRA.pessoal].indexOf(n)) % CORES_EXTRA.length];
+// Cores escolhidas por você (🎨 Cores), por lado: "empresa|Investimentos" → "#c2185b"
+const COR_USER = {};
+let ESP_ATUAL = "empresa";
+const PALETA = ["#2a78d6", "#1f3a93", "#00838f", "#0f8b8d", "#1baf7a", "#008300", "#5d7a1f", "#eda100", "#b8860b",
+  "#eb6834", "#e34948", "#c2185b", "#e87ba4", "#8e44ad", "#6250d6", "#a0522d", "#6d4c41", "#9A94AC"];
+const CoresCtx = createContext(null);
+const corPadrao = n => COR_CAT[n] || CORES_EXTRA[Math.max(0, [...CAT_EXTRA.empresa, ...CAT_EXTRA.pessoal].indexOf(n)) % CORES_EXTRA.length];
+const corCat = (n, esp = ESP_ATUAL) => COR_USER[`${esp}|${n}`] || corPadrao(n);
 const NOVA_CAT = "__nova__";
 function pedirNovaCategoria(esp) {
   const nome = (window.prompt(`Nova categoria (${esp === "pessoal" ? "🏠 Pessoal" : "🏢 Empresa"}):`) || "").trim().replace(/\s+/g, " ");
@@ -475,7 +482,7 @@ function CatSelect({ value, onChange, espaco = "empresa" }) {
   const lista = listaCat(espaco);
   return (
     <div style={{ position:"relative", display:"flex", alignItems:"center", padding:"0 4px 0 8px" }}>
-      <span style={{ width:9, height:9, borderRadius:2, background:corCat(value) || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
+      <span style={{ width:9, height:9, borderRadius:2, background:corCat(value, espaco) || "#ccc", flex:"0 0 auto", pointerEvents:"none" }}/>
       <select className="fin-cell" value={value} onChange={e => {
           const v = e.target.value === NOVA_CAT ? pedirNovaCategoria(espaco) : e.target.value;
           if (v) onChange(v); else e.target.value = value;
@@ -743,6 +750,7 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, atualNome, ro
   const [modo, setModo] = useState("categoria");
   const [aberto, setAberto] = useState(null);
   const [comparar, setComparar] = useState(false);
+  const abrirCores = useContext(CoresCtx);
   const cmp = comparar && !!compararCom;
   const total = rows.reduce((s, r) => s + r.valor, 0);
   const totalAnt = anteriores.reduce((s, r) => s + r.valor, 0);
@@ -760,7 +768,7 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, atualNome, ro
         itens:resto.flatMap(g => g.itens), anterior:0, outros:true }];
     }
     return list.map((g, i) => ({ ...g, cor: g.outros ? "#B9B4C7" : (MODOS[modo].cor?.(g.nome) || COR_ITEM[i % COR_ITEM.length]) }));
-  }, [rows, anteriores, modo, cmp]);
+  }, [rows, anteriores, modo, cmp, JSON.stringify(COR_USER)]);
   const mx = Math.max(1, ...grupos.map(g => cmp ? Math.max(g.valor, g.anterior) : g.valor));
   const nomeAtual = atualNome || titulo || "este mês";
   const botao = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff",
@@ -770,6 +778,8 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, atualNome, ro
     <div style={caixaBloco}>
       <Cabeca titulo={`${rotulo}${titulo ? " · " + titulo : ""}`} sub={total ? `${brl(total)} em ${rows.length} gastos` : ""}>
         {Object.entries(MODOS).map(([k, m]) => <button key={k} onClick={() => { setModo(k); setAberto(null); }} style={botao(modo === k)}>{m.label}</button>)}
+        {abrirCores && modo === "categoria" && <button onClick={abrirCores} title="Escolher as cores das categorias" aria-label="Cores das categorias"
+          style={{ ...botao(false), display:"inline-flex", alignItems:"center", gap:5 }}><IconePaleta/> Cores</button>}
         {compararCom && <button onClick={() => setComparar(c => !c)} aria-pressed={cmp}
           style={{ ...botao(cmp), ...(cmp ? {} : { background:"#F6C343", color:"#3B1C7E", border:"none" }) }}>⚖️ vs {compararCom}</button>}
       </Cabeca>
@@ -1303,6 +1313,15 @@ function FinanceiroApp({ senha, sair }) {
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
   atualizarCatExtra(review.length ? [...rows, ...review] : rows);   // categorias criadas (vêm dos lançamentos)
+  // 🎨 cores escolhidas (sincronizam pela nuvem)
+  const [cores, setCores] = useState(() => lerJSON("aigo-fin-cores", {}));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-cores", JSON.stringify(cores)); } catch {} }, [cores]);
+  const [painelCores, setPainelCores] = useState(false);
+  Object.keys(COR_USER).forEach(k => delete COR_USER[k]);
+  Object.entries(cores).forEach(([k, v]) => { if (v && v.cor) COR_USER[k] = v.cor; });
+  ESP_ATUAL = espaco;
+  const escolherCor = (esp, c, cor) => setCores(cs => ({ ...cs, [`${esp}|${c}`]: { cor: cor.toLowerCase() === corPadrao(c).toLowerCase() ? null : cor, upd: Date.now() } }));
+  const voltarCores = esp => setCores(cs => Object.fromEntries(Object.entries(cs).map(([k, v]) => [k, k.startsWith(esp + "|") ? { cor:null, upd:Date.now() } : v])));
   const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
@@ -1328,8 +1347,8 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem(APAG_KEY, JSON.stringify(apagados)); } catch {} }, [apagados]);
 
   // ── Nuvem: manda o que este aparelho tem e recebe tudo já juntado com os outros aparelhos ──
-  const atual = useRef({ rows, apagados });
-  atual.current = { rows, apagados };
+  const atual = useRef({ rows, apagados, cores });
+  atual.current = { rows, apagados, cores };
   const sync = useRef({ rodando:false, pendente:false });
   async function sincronizar() {
     if (sync.current.rodando) { sync.current.pendente = true; return; }
@@ -1339,18 +1358,19 @@ function FinanceiroApp({ senha, sair }) {
       const enviado = atual.current;
       const resp = await fetch("/api/fin-dados", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados }),
+        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados, cores: enviado.cores }),
       });
       if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (resp.status === 503 && out.semNuvem) { setNuvem({ estado:"sem", quando:null }); return; }
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
-      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados) {
+      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados || atual.current.cores !== enviado.cores) {
         sync.current.pendente = true;          // mudou algo enquanto enviava: manda de novo antes de aplicar
       } else {
         const daNuvem = (out.rows || []).map(normalize);
         if (!igual(daNuvem, enviado.rows)) setRows(sortRows(daNuvem));
         if (!igual(out.apagados || [], enviado.apagados)) setApagados(out.apagados || []);
+        if (out.cores && typeof out.cores === "object" && JSON.stringify(out.cores) !== JSON.stringify(enviado.cores)) setCores(out.cores);
       }
       setNuvem({ estado:"ok", quando:new Date() });
     } catch {
@@ -1361,7 +1381,7 @@ function FinanceiroApp({ senha, sair }) {
     }
   }
   // depois de cada alteração (espera 1 segundo sem mexer)
-  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados]);
+  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados, cores]);
   // a cada 15 segundos e ao voltar para a aba, para receber o que foi lançado no outro aparelho
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === "visible") sincronizar(); }, 15000);
@@ -1624,7 +1644,7 @@ function FinanceiroApp({ senha, sair }) {
   });
 
   return (
-    <OcultarCtx.Provider value={ocultar}>
+    <OcultarCtx.Provider value={ocultar}><CoresCtx.Provider value={() => setPainelCores(true)}>
     <div className={ocultar ? "fin-ocultar" : ""} style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}>
       <style>{CSS}</style>
 
@@ -1922,8 +1942,76 @@ function FinanceiroApp({ senha, sair }) {
             borderRadius:9, padding:"7px 16px", fontFamily:FONT, fontSize:13, fontWeight:800, cursor:"pointer" }}>✓ Concluir</button>
         </div>
       )}
+      {painelCores && <PainelCores espacoInicial={espaco} cores={cores} onCor={escolherCor} onVoltar={voltarCores} onFechar={() => setPainelCores(false)}/>}
     </div>
-    </OcultarCtx.Provider>
+    </CoresCtx.Provider></OcultarCtx.Provider>
+  );
+}
+
+// Ícone de paleta (traço fino)
+function IconePaleta() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/>
+      <circle cx="7.5" cy="10.5" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/>
+    </svg>
+  );
+}
+
+// 🎨 Janelinha para escolher a cor de cada categoria (Empresa e Pessoal)
+function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
+  const [esp, setEsp] = useState(espacoInicial);
+  const [aberta, setAberta] = useState(null);
+  const lista = listaCat(esp);
+  const mudou = lista.some(c => cores[`${esp}|${c}`]?.cor);
+  return (
+    <div onClick={onFechar} style={{ position:"fixed", inset:0, background:"rgba(42,33,64,.35)", zIndex:40, display:"flex",
+      alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label="Cores das categorias"
+        style={{ background:P.papel, borderRadius:16, width:"min(440px, 100%)", maxHeight:"88vh", display:"flex", flexDirection:"column",
+          boxShadow:"0 18px 40px rgba(59,28,126,.28)", fontFamily:FONT, overflow:"hidden" }}>
+        <div style={{ padding:"14px 16px 8px", display:"flex", alignItems:"center", gap:8, color:P.roxo }}>
+          <IconePaleta/><b style={{ fontSize:15 }}>Cores das categorias</b>
+          <button onClick={onFechar} style={{ marginLeft:"auto", border:"none", background:"none", color:P.suave, fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>✕ fechar</button>
+        </div>
+        <div style={{ display:"flex", gap:6, padding:"0 16px 10px" }}>
+          {Object.entries(ESPACOS).map(([k, e]) => (
+            <button key={k} onClick={() => { setEsp(k); setAberta(null); }} style={{ border:"none", borderRadius:999, padding:"5px 12px", fontFamily:FONT,
+              fontSize:11.5, fontWeight:700, cursor:"pointer", background: esp === k ? P.roxo : P.lilasClaro, color: esp === k ? "#fff" : P.suave }}>
+              {e.icone} {e.nome}</button>
+          ))}
+        </div>
+        <div style={{ overflowY:"auto" }}>
+          {lista.map(c => {
+            const cor = corCat(c, esp), open = aberta === c;
+            return (
+              <div key={c} style={{ borderTop:`1px solid ${P.linha}`, background: open ? "#F5F1FD" : "transparent" }}>
+                <button onClick={() => setAberta(open ? null : c)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"9px 16px",
+                  border:"none", background:"none", cursor:"pointer", fontFamily:FONT, fontSize:13, color:P.tinta, textAlign:"left" }}>
+                  <span style={{ width:18, height:18, borderRadius:6, background:cor, flex:"0 0 auto" }}/>
+                  <span>{c}</span>
+                  <span style={{ marginLeft:"auto", fontSize:11, fontWeight:700, color:P.suave }}>{open ? "fechar ▴" : "trocar ▾"}</span>
+                </button>
+                {open && (
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:8, padding:"2px 16px 14px 44px" }}>
+                    {PALETA.map(p => (
+                      <button key={p} onClick={() => onCor(esp, c, p)} aria-label={`Cor ${p}`} title={p}
+                        style={{ width:28, height:28, borderRadius:8, background:p, border:"none", cursor:"pointer",
+                          boxShadow: p.toLowerCase() === cor.toLowerCase() ? `0 0 0 2px #fff, 0 0 0 4px ${P.roxo}` : "none" }}/>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding:"10px 16px", borderTop:`1px solid ${P.linha}`, display:"flex", alignItems:"center", gap:8, fontSize:11.5, color:P.suave }}>
+          <span>Toque na categoria e escolha a cor</span>
+          <button onClick={() => onVoltar(esp)} disabled={!mudou} style={{ marginLeft:"auto", border:"none", background:"none", fontFamily:FONT,
+            fontSize:12, fontWeight:800, color: mudou ? P.roxo : "#C8C2D8", cursor: mudou ? "pointer" : "default" }}>↺ Voltar às cores originais</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
