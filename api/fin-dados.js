@@ -8,7 +8,7 @@ import { juntar } from "./_fin-merge.js";
 // Aceita o prefixo escolhido ao conectar o banco na Vercel (KV, STORAGE ou o padrão do Upstash)
 const URL_ = process.env.KV_REST_API_URL || process.env.STORAGE_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.STORAGE_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", ano = a => `fin:ano:${a}`;
+const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", CLIENTES = "fin:clientes", ano = a => `fin:ano:${a}`;
 
 // Cores escolhidas para as categorias: { "empresa|Investimentos": { cor:"#c2185b", upd:123 } }
 // Por categoria, fica a escolha mais recente (cor null = voltou à cor original).
@@ -37,11 +37,26 @@ async function redis(comandos) {
 }
 const ler = v => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
 
+// Clientes (aba Geral): { id: { nome, servico, valor, inicio, info, ord, upd, apagado } } e "_meta": { valor, upd }.
+// Por cliente, fica a versão mais recente (apagado:true = removido).
+const txt = (v, n) => typeof v === "string" ? v.slice(0, n) : "";
+function juntarClientes(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [id, v] of Object.entries(b || {})) {
+    if (!v || typeof v !== "object" || typeof id !== "string" || id.length > 80) continue;
+    const limpo = id === "_meta" ? { valor: Number(v.valor) || 0, upd: Number(v.upd) || 0 }
+      : { nome: txt(v.nome, 120), servico: txt(v.servico, 60), valor: Number(v.valor) || 0, inicio: txt(v.inicio, 10),
+          info: txt(v.info, 200), ord: Number(v.ord) || 0, upd: Number(v.upd) || 0, ...(v.apagado ? { apagado: true } : {}) };
+    if (!out[id] || limpo.upd > (Number(out[id].upd) || 0)) out[id] = limpo;
+  }
+  return out;
+}
+
 async function lerTudo() {
-  const [anosTxt, apagTxt, coresTxt] = await redis([["GET", ANOS], ["GET", APAGADOS], ["GET", CORES]]);
+  const [anosTxt, apagTxt, coresTxt, clientesTxt] = await redis([["GET", ANOS], ["GET", APAGADOS], ["GET", CORES], ["GET", CLIENTES]]);
   const anos = ler(anosTxt) || [];
   const partes = anos.length ? await redis(anos.map(a => ["GET", ano(a)])) : [];
-  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [], cores: ler(coresTxt) || {} };
+  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [], cores: ler(coresTxt) || {}, clientes: ler(clientesTxt) || {} };
 }
 
 async function gravar({ rows, apagados }) {
@@ -71,12 +86,14 @@ export default async function handler(req, res) {
     const corpo = await lerCorpo(req);
     const chegou = { rows: Array.isArray(corpo.rows) ? corpo.rows : [], apagados: Array.isArray(corpo.apagados) ? corpo.apagados : [] };
     const nuvem = await lerTudo();
-    const { cores: coresNuvem, ...dadosNuvem } = nuvem;
+    const { cores: coresNuvem, clientes: clientesNuvem, ...dadosNuvem } = nuvem;
     const junto = juntar(dadosNuvem, chegou);
     if (JSON.stringify(junto) !== JSON.stringify(dadosNuvem)) await gravar(junto);
     const cores = juntarCores(coresNuvem, corpo.cores && typeof corpo.cores === "object" ? corpo.cores : {});
     if (JSON.stringify(cores) !== JSON.stringify(coresNuvem)) await redis([["SET", CORES, JSON.stringify(cores)]]);
-    return res.status(200).json({ ...junto, cores, quando: Date.now() });
+    const clientes = juntarClientes(clientesNuvem, corpo.clientes && typeof corpo.clientes === "object" ? corpo.clientes : {});
+    if (JSON.stringify(clientes) !== JSON.stringify(clientesNuvem)) await redis([["SET", CLIENTES, JSON.stringify(clientes)]]);
+    return res.status(200).json({ ...junto, cores, clientes, quando: Date.now() });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao falar com a nuvem: " + (e.message || String(e)) });
   }
