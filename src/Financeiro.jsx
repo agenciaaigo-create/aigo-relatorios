@@ -561,7 +561,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.id} className="fin-row">
+              <tr key={r.id} className="fin-row" data-id={r.id}>
                 <td data-marcar={secao} data-idx={i} onPointerDown={e => inicioMarcar(e, i)} title="Arraste para marcar várias linhas"
                   style={{ ...td, textAlign:"center", cursor:"pointer", touchAction:"none", userSelect:"none", WebkitUserSelect:"none", ...fundo(r) }}>
                   <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} aria-label="Selecionar linha"
@@ -1322,6 +1322,13 @@ function FinanceiroApp({ senha, sair }) {
   const [cores, setCores] = useState(() => lerJSON("aigo-fin-cores", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-cores", JSON.stringify(cores)); } catch {} }, [cores]);
   const [painelCores, setPainelCores] = useState(false);
+  // 🔍 busca: botão de lupa ou ⌘/Ctrl + F
+  const [busca, setBusca] = useState(false);
+  useEffect(() => {
+    const tecla = e => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") { e.preventDefault(); setBusca(true); } };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, []);
   Object.keys(COR_USER).forEach(k => delete COR_USER[k]);
   Object.entries(cores).forEach(([k, v]) => { if (v && v.cor) COR_USER[k] = v.cor; });
   ESP_ATUAL = espaco;
@@ -1681,6 +1688,10 @@ function FinanceiroApp({ senha, sair }) {
             return <div title={st[3]} style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100,
               whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>;
           })()}
+          <button onClick={() => setBusca(true)} aria-label="Buscar lançamentos" title="Buscar (⌘ F)"
+            style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8, width:34, height:31,
+              display:"inline-flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, flex:"0 0 auto" }}>
+            <IconeLupa/></button>
           <button onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} aria-label={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
             title={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
             style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8, width:34, height:31,
@@ -1947,6 +1958,11 @@ function FinanceiroApp({ senha, sair }) {
             borderRadius:9, padding:"7px 16px", fontFamily:FONT, fontSize:13, fontWeight:800, cursor:"pointer" }}>✓ Concluir</button>
         </div>
       )}
+      {busca && <Busca rows={rows} espacoInicial={espaco} onFechar={() => setBusca(false)} onIr={r => {
+        const [y, m] = r.mes.split("-");
+        setBusca(false); setEspaco(espacoDe(r.secao)); setAno(+y); setAba(+m - 1); setDestaque(new Set([r.id]));
+        setTimeout(() => document.querySelector(`tr[data-id="${r.id}"]`)?.scrollIntoView({ behavior:"smooth", block:"center" }), 350);
+      }}/>}
       {painelCores && <PainelCores espacoInicial={espaco} cores={cores} onCor={escolherCor} onVoltar={voltarCores} onFechar={() => setPainelCores(false)}/>}
     </div>
     </CoresCtx.Provider></OcultarCtx.Provider>
@@ -2021,6 +2037,86 @@ function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
           <button onClick={() => onVoltar(itens.map(([k]) => k))} disabled={!mudou} style={{ marginLeft:"auto", border:"none", background:"none", fontFamily:FONT,
             fontSize:12, fontWeight:800, color: mudou ? P.roxo : "#C8C2D8", cursor: mudou ? "pointer" : "default" }}>↺ Voltar às cores originais</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Ícone de lupa (traço fino)
+function IconeLupa({ size = 17 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/><line x1="20.5" y1="20.5" x2="16" y2="16"/>
+    </svg>
+  );
+}
+
+// 🔍 Busca em todos os lançamentos (todos os meses e anos, Empresa e Pessoal)
+function Busca({ rows, espacoInicial, onIr, onFechar }) {
+  const [q, setQ] = useState("");
+  const [onde, setOnde] = useState("tudo");
+  const ref = useRef();
+  useEffect(() => { ref.current?.focus(); const esc = e => { if (e.key === "Escape") onFechar(); }; window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc); }, []);
+  const termo = semAcento(q);
+  const achados = useMemo(() => {
+    if (termo.length < 2) return [];
+    const num = termo.replace(/[^\d,]/g, "");
+    return rows.filter(r => (onde === "tudo" || espacoDe(r.secao) === onde) && (r.descricao || r.valor) && (
+        semAcento([r.descricao, r.info, r.categoria, r.tipo, r.servico, r.forma, SECTIONS[r.secao]?.title].join(" ")).includes(termo)
+        || (num.length >= 2 && brl(r.valor).replace(/\./g, "").includes(num.replace(/\./g, "")))))
+      .sort((a, b) => b.mes.localeCompare(a.mes) || (b.dia || 0) - (a.dia || 0));
+  }, [rows, termo, onde]);
+  const soma = f => achados.filter(f).reduce((t, r) => t + r.valor, 0);
+  const entrou = soma(r => r.secao === "receita"), saiu = soma(r => r.secao !== "receita");
+  return (
+    <div onClick={onFechar} style={{ position:"fixed", inset:0, background:"rgba(42,33,64,.35)", zIndex:40, display:"flex", justifyContent:"center",
+      alignItems:"flex-start", padding:"7vh 12px 12px" }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label="Buscar lançamentos" style={{ background:P.papel, borderRadius:16, width:"min(680px, 100%)",
+        maxHeight:"84vh", display:"flex", flexDirection:"column", boxShadow:"0 18px 40px rgba(59,28,126,.28)", fontFamily:FONT, overflow:"hidden" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 16px", borderBottom:`1px solid ${P.linha}`, color:P.roxo }}>
+          <IconeLupa size={19}/>
+          <input ref={ref} value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente, gasto, categoria ou valor…"
+            style={{ flex:1, border:"none", outline:"none", fontFamily:FONT, fontSize:16, color:P.tinta, background:"transparent", minWidth:0 }}/>
+          <button onClick={onFechar} style={{ border:"none", background:"none", color:P.suave, fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>✕ fechar</button>
+        </div>
+        <div style={{ display:"flex", gap:6, padding:"10px 16px", flexWrap:"wrap", alignItems:"center" }}>
+          {[["tudo", "Tudo"], ["empresa", "🏢 Empresa"], ["pessoal", "🏠 Pessoal"]].map(([k, t]) => (
+            <button key={k} onClick={() => setOnde(k)} style={{ border:"none", borderRadius:999, padding:"5px 12px", fontFamily:FONT, fontSize:11.5, fontWeight:700,
+              cursor:"pointer", background: onde === k ? P.roxo : P.lilasClaro, color: onde === k ? "#fff" : P.suave }}>{t}</button>
+          ))}
+          {achados.length > 0 && <span style={{ marginLeft:"auto", fontSize:11.5, color:P.suave }}>
+            <b style={{ color:P.tinta }}>{achados.length}</b> lançamento{achados.length > 1 ? "s" : ""}
+            {entrou > 0 && <> · entrou <b style={{ color:P.verde }}>{brl(entrou)}</b></>}
+            {saiu > 0 && <> · saiu <b style={{ color:P.vermelho }}>{brl(saiu)}</b></>}
+          </span>}
+        </div>
+        <div style={{ overflowY:"auto", borderTop:`1px solid ${P.linha}` }}>
+          {termo.length < 2 ? <div style={{ padding:"26px 16px", textAlign:"center", fontSize:12.5, color:P.suave }}>Digite pelo menos 2 letras. Procura em todos os meses e anos.</div>
+          : !achados.length ? <div style={{ padding:"26px 16px", textAlign:"center", fontSize:12.5, color:P.suave }}>Nada encontrado para "{q}".</div>
+          : achados.slice(0, 200).map(r => {
+            const [y, m] = r.mes.split("-"), rec = r.secao === "receita";
+            const extra = rec ? [r.servico, r.tipo].filter(Boolean).join(" · ") : r.categoria;
+            return (
+              <button key={r.id} onClick={() => onIr(r)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"9px 16px", border:"none",
+                borderBottom:`1px solid ${P.linha}`, background:"none", cursor:"pointer", fontFamily:FONT, textAlign:"left", color:P.tinta }}>
+                <span style={{ width:58, flex:"0 0 auto", fontSize:11, color:P.suave, lineHeight:1.3 }}>
+                  <b style={{ color:P.tinta, fontSize:12 }}>{r.dia ? pad(r.dia) : "—"} {MESES[+m - 1].slice(0, 3).toLowerCase()}</b><br/>{y}</span>
+                <span style={{ flex:1, minWidth:0 }}>
+                  <span style={{ display:"block", fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {r.descricao || "(sem descrição)"}{r.info ? <span style={{ fontWeight:500, color:P.suave }}> · {r.info}</span> : null}</span>
+                  <span style={{ display:"block", fontSize:11, color:P.suave, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {ESPACOS[espacoDe(r.secao)].icone} {SECTIONS[r.secao].title}{extra ? ` · ${extra}` : ""}</span>
+                </span>
+                <span style={{ textAlign:"right", flex:"0 0 auto" }}>
+                  <b style={{ display:"block", fontSize:13, color: rec ? P.verde : P.tinta }}>{rec ? "+" : ""}{brl(r.valor)}</b>
+                  <span style={{ fontSize:10.5, fontWeight:700, color: r.status === "pago" ? P.verde : P.vermelho }}>{r.status === "pago" ? (rec ? "Recebido" : "Pago") : (rec ? "A receber" : "Não pago")}</span>
+                </span>
+              </button>
+            );
+          })}
+          {achados.length > 200 && <div style={{ padding:"10px 16px", fontSize:11.5, color:P.suave }}>Mostrando os 200 mais recentes. Digite mais para filtrar.</div>}
+        </div>
+        <div style={{ padding:"8px 16px", borderTop:`1px solid ${P.linha}`, fontSize:11, color:P.suave }}>Clique num resultado para ir até ele na tabela.</div>
       </div>
     </div>
   );
