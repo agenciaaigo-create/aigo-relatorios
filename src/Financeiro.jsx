@@ -1214,9 +1214,6 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
   const total = lista.reduce((t, c) => t + (c.valor || 0), 0);
   const pct = meta ? Math.min(100, total / meta * 100) : 0;
   const [editMeta, setEditMeta] = useState(false);
-  // recebido no ano por cliente (receitas com o mesmo nome)
-  const recebido = nome => { const n = semAcento(nome); if (n.length < 3) return 0;
-    return rows.filter(r => r.secao === "receita" && r.mes.startsWith(`${ano}-`) && semAcento(r.descricao).startsWith(n)).reduce((t, r) => t + r.valor, 0); };
   function novo() { onSalvar(uid(), { nome:"", servico:"Social Media", valor:0, inicio:"", info:"", ord:Date.now() }); }
   function trazer() {
     const ja = new Set(lista.map(c => semAcento(c.nome)));
@@ -1260,8 +1257,7 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
         <table style={{ borderCollapse:"collapse", width:"100%", minWidth:720, fontFamily:FONT }}>
           <thead><tr>
             <th style={{ ...th, width:"26%" }}>Cliente</th><th style={{ ...th, width:130 }}>Serviço</th><th style={{ ...th, textAlign:"right", width:110 }}>Valor</th>
-            <th style={{ ...th, width:130 }}>Início do contrato</th><th style={th}>Info</th>
-            <th style={{ ...th, textAlign:"right", width:120 }} title={`Soma das receitas com o nome do cliente em ${ano}`}>Recebido {ano}</th><th style={{ ...th, width:26, borderRight:"none" }}/>
+            <th style={{ ...th, width:130 }}>Início do contrato</th><th style={th}>Info</th><th style={{ ...th, width:26, borderRight:"none" }}/>
           </tr></thead>
           <tbody>
             {lista.map(c => {
@@ -1274,7 +1270,6 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
                   <td style={td}><input type="date" className="fin-cell" value={c.inicio || ""} onChange={e => set({ inicio:e.target.value })}
                     style={{ ...cellBase, color: c.inicio ? P.tinta : P.suave }}/></td>
                   <td style={td}><TextCell value={c.info} onChange={v => set({ info:v })}/></td>
-                  <td style={{ ...td, textAlign:"right", padding:"0 8px", fontSize:11.5, color:P.verde, fontWeight:700, whiteSpace:"nowrap" }}>{recebido(c.nome) ? brl(recebido(c.nome)) : <span style={{ color:"#C8C2D8" }}>—</span>}</td>
                   <td style={{ ...td, borderRight:"none", textAlign:"center" }}>
                     <button className="fin-del" onClick={() => { if (!c.nome || window.confirm(`Tirar "${c.nome}" da lista de clientes?`)) onApagar(c.id); }}
                       title="Tirar da lista" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", padding:"4px 6px" }}>✕</button>
