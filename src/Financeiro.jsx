@@ -1214,6 +1214,10 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
   const total = lista.reduce((t, c) => t + (c.valor || 0), 0);
   const pct = meta ? Math.min(100, total / meta * 100) : 0;
   const [editMeta, setEditMeta] = useState(false);
+  const [vista, setVista] = useState(() => { try { return localStorage.getItem("aigo-fin-clientes-vista") || "cartoes"; } catch { return "cartoes"; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-clientes-vista", vista); } catch {} }, [vista]);
+  const porValor = [...lista].filter(c => c.valor > 0).sort((a, b) => b.valor - a.valor);
+  const corDe = id => PALETA[[2, 13, 4, 11, 0, 7, 14, 9, 3, 12, 5, 10, 1, 15, 6, 8][Math.max(0, porValor.findIndex(c => c.id === id)) % 16]];
   function novo() { onSalvar(uid(), { nome:"", servico:"Social Media", valor:0, inicio:"", info:"", ord:Date.now() }); }
   function trazer() {
     const ja = new Set(lista.map(c => semAcento(c.nome)));
@@ -1235,9 +1239,16 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
   return (
     <div style={caixaBloco}>
       <Cabeca titulo="👥 Clientes" sub={`${lista.length} cliente${lista.length !== 1 ? "s" : ""} · ${brl(total)} por mês`}>
+        {[["cartoes", "▦ Cartões"], ["tabela", "☰ Editar"]].map(([k, t]) => (
+          <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k} style={{ background: vista === k ? "#fff" : "rgba(255,255,255,.14)",
+            color: vista === k ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:8, padding:"4px 10px", fontFamily:FONT,
+            fontSize:11, fontWeight:700, cursor:"pointer" }}>{t}</button>
+        ))}
         <HeadBtn onClick={trazer} title="Cria a lista a partir das receitas de Social Media">↧ Trazer das receitas</HeadBtn>
         <HeadBtn onClick={copiar} disabled={!lista.length}>📋 Copiar tudo</HeadBtn>
       </Cabeca>
+      {vista === "cartoes" ? <CartoesClientes lista={lista} porValor={porValor} total={total} meta={meta} corDe={corDe}
+        onMeta={() => { setVista("tabela"); setEditMeta(true); }} onEditar={() => setVista("tabela")} onNovo={() => { novo(); setVista("tabela"); }}/> : <>
       <div style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
         <div style={{ fontSize:12, fontWeight:700, color:P.roxo, whiteSpace:"nowrap" }}>
           {editMeta ? <span>Meta: <input autoFocus defaultValue={meta ? num(meta) : ""} inputMode="decimal" placeholder="50.000,00"
@@ -1282,13 +1293,96 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
       </div>
       <button onClick={novo} style={{ width:"100%", textAlign:"left", border:"none", background:P.lilasClaro, color:P.roxo, fontFamily:FONT,
         fontSize:12, fontWeight:700, padding:"8px 14px", cursor:"pointer" }}>+ Adicionar cliente</button>
-      <div style={{ display:"flex", borderTop:`1px solid ${P.linha}` }}>
+      </>}
+      {vista === "tabela" && <div style={{ display:"flex", borderTop:`1px solid ${P.linha}` }}>
         {[["Clientes", String(lista.length)], ["Total por mês", brl(total)], ["Ticket médio", lista.length ? brl(total / lista.length) : "—"]].map(([l, v], i) => (
           <div key={l} style={{ flex:1, padding:"9px 14px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
             <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
             <div style={{ fontSize:15, fontWeight:800, color: i === 1 ? P.roxo : P.tinta }}>{v}</div>
           </div>
         ))}
+      </div>}
+    </div>
+  );
+}
+
+// Tempo de contrato: "2 anos e 3 meses"
+function tempoDeCasa(inicio) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio || "")) return "";
+  const [y, m, d] = inicio.split("-").map(Number), h = new Date();
+  let meses = (h.getFullYear() - y) * 12 + (h.getMonth() + 1 - m) - (h.getDate() < d ? 1 : 0);
+  if (meses < 0) return "começa em breve";
+  if (meses < 1) return "cliente novo";
+  const a = Math.floor(meses / 12), r = meses % 12;
+  return [a ? `${a} ano${a > 1 ? "s" : ""}` : "", r ? `${r} ${r > 1 ? "meses" : "mês"}` : ""].filter(Boolean).join(" e ");
+}
+const iniciais = n => (n || "?").trim().split(/\s+/).filter(w => w.length > 1 || /\d/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+
+function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar, onNovo }) {
+  const oculto = useContext(OcultarCtx);
+  const R = 52, C = 2 * Math.PI * R, pct = meta ? Math.min(1, total / meta) : 0;
+  const v = x => oculto ? TRACOS : brl(x);
+  const top = porValor.slice(0, 8), resto = porValor.slice(8).reduce((t, c) => t + c.valor, 0);
+  return (
+    <div style={{ padding:14 }}>
+      <div style={{ display:"flex", gap:18, alignItems:"center", flexWrap:"wrap", marginBottom:14 }}>
+        <button onClick={onMeta} title="Mudar a meta" style={{ border:"none", background:"none", padding:0, cursor:"pointer", position:"relative", width:132, height:132, flex:"0 0 auto" }}>
+          <svg viewBox="0 0 132 132" width="132" height="132">
+            <circle cx="66" cy="66" r={R} fill="none" stroke={P.lilasClaro} strokeWidth="13"/>
+            {meta > 0 && <circle cx="66" cy="66" r={R} fill="none" stroke="url(#gMeta)" strokeWidth="13" strokeLinecap="round"
+              strokeDasharray={`${C * pct} ${C}`} transform="rotate(-90 66 66)"/>}
+            <defs><linearGradient id="gMeta" x1="0" x2="1"><stop offset="0" stopColor="#7B4FD6"/><stop offset="1" stopColor="#3B1C7E"/></linearGradient></defs>
+          </svg>
+          <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:FONT }}>
+            <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave }}>META</span>
+            <b style={{ fontSize:22, color:P.roxo }}>{meta ? `${Math.round(pct * 100)}%` : "—"}</b>
+            <span style={{ fontSize:10, color:P.suave }}>{meta ? (oculto ? TRACOS : brl(meta).replace(",00", "")) : "definir"}</span>
+          </div>
+        </button>
+        <div style={{ flex:"1 1 260px", minWidth:0 }}>
+          <div style={{ display:"flex", gap:22, flexWrap:"wrap", marginBottom:10 }}>
+            {[["Por mês", v(total), P.roxo], ["Clientes", String(lista.length), P.tinta], ["Ticket médio", lista.length ? v(total / lista.length) : "—", P.tinta],
+              ...(meta > total ? [["Falta para a meta", v(meta - total), P.laranja]] : meta ? [["Meta batida! 🎉", v(total - meta) + " a mais", P.verde]] : [])].map(([l, val, cor]) => (
+              <div key={l}><div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+                <div style={{ fontSize:19, fontWeight:900, color:cor }}>{val}</div></div>
+            ))}
+          </div>
+          {total > 0 && <>
+            <div style={{ display:"flex", gap:2, height:16, borderRadius:6, overflow:"hidden" }}>
+              {top.map(c => <div key={c.id} title={`${c.nome}: ${brl(c.valor)}`} style={{ width:`${c.valor / total * 100}%`, background:corDe(c.id) }}/>)}
+              {resto > 0 && <div title={`Outros: ${brl(resto)}`} style={{ width:`${resto / total * 100}%`, background:"#C8C2D8" }}/>}
+            </div>
+            <div style={{ fontSize:10.5, color:P.suave, marginTop:5 }}>Quanto cada cliente representa no total do mês</div>
+          </>}
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:10 }}>
+        {[...lista].sort((a, b) => (b.valor || 0) - (a.valor || 0)).map(c => {
+          const cor = corDe(c.id), tempo = tempoDeCasa(c.inicio);
+          return (
+            <button key={c.id} onClick={onEditar} title="Clique para editar" style={{ textAlign:"left", border:`1px solid ${P.linha}`, borderRadius:12, background:P.papel,
+              padding:"11px 12px", cursor:"pointer", fontFamily:FONT, color:P.tinta, display:"flex", flexDirection:"column", gap:6, borderTop:`4px solid ${cor}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:9, minWidth:0 }}>
+                <span style={{ width:34, height:34, borderRadius:"50%", background:cor, color:textoSobre(cor), display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:12.5, fontWeight:800, flex:"0 0 auto" }}>{iniciais(c.nome)}</span>
+                <span style={{ minWidth:0 }}>
+                  <b style={{ display:"block", fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.nome || "(sem nome)"}</b>
+                  <span style={{ fontSize:10.5, color:P.suave }}>{c.servico}</span>
+                </span>
+              </div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                <b style={{ fontSize:17 }}>{v(c.valor || 0)}</b>
+                {total > 0 && c.valor > 0 && <span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{(c.valor / total * 100).toFixed(0)}%</span>}
+              </div>
+              {(tempo || c.info) && <div style={{ fontSize:10.5, color:P.suave, lineHeight:1.4 }}>
+                {tempo && <div>🗓 {/^\d/.test(tempo) ? `cliente há ${tempo}` : tempo}</div>}
+                {c.info && <div style={{ color:P.roxo, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {c.info}</div>}
+              </div>}
+            </button>
+          );
+        })}
+        <button onClick={onNovo} style={{ border:`2px dashed ${P.lilas}`, borderRadius:12, background:"transparent", color:P.roxo, fontFamily:FONT,
+          fontSize:12.5, fontWeight:700, cursor:"pointer", minHeight:96 }}>+ Adicionar cliente</button>
       </div>
     </div>
   );
