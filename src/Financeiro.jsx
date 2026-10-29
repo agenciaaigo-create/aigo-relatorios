@@ -99,6 +99,10 @@ const PALETA = ["#2a78d6", "#1f3a93", "#00838f", "#0f8b8d", "#1baf7a", "#008300"
 const CoresCtx = createContext(null);
 const corPadrao = n => COR_CAT[n] || CORES_EXTRA[Math.max(0, [...CAT_EXTRA.empresa, ...CAT_EXTRA.pessoal].indexOf(n)) % CORES_EXTRA.length];
 const corCat = (n, esp = ESP_ATUAL) => COR_USER[`${esp}|${n}`] || corPadrao(n);
+// Listas coloridas das Receitas (Serviço, Fotografia): cor escolhida, ou a de uma categoria com o mesmo nome (ex.: Natal)
+const corChip = (f, v) => v ? (COR_USER[`${f}|${v}`] || (!CHIPS[f]?.some(o => o[0] === v) && (COR_USER[`empresa|${v}`] || COR_USER[`pessoal|${v}`])) || null) : null;
+const textoSobre = h => { const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255); return .299 * r + .587 * g + .114 * b > .62 ? "#2A2140" : "#FFFFFF"; };
+const ABAS_CHIP = [["servico", "Serviço"], ["tipo", "Fotografia"]];
 const NOVA_CAT = "__nova__";
 function pedirNovaCategoria(esp) {
   const nome = (window.prompt(`Nova categoria (${esp === "pessoal" ? "🏠 Pessoal" : "🏢 Empresa"}):`) || "").trim().replace(/\s+/g, " ");
@@ -456,7 +460,8 @@ function MoneyCell({ value, onChange }) {
 
 function ChipSelect({ field, value, onChange }) {
   const o = chipOf(field, value);
-  const [, bg, fg] = o || (value ? [null, "#E6DEF7", "#4A3F6B"] : [null, "#F1EFF6", P.suave]);   // opção criada: lilás neutro
+  const uc = corChip(field, value);
+  const [, bg, fg] = uc ? [null, uc, textoSobre(uc)] : o || (value ? [null, "#E6DEF7", "#4A3F6B"] : [null, "#F1EFF6", P.suave]);   // opção criada: lilás neutro
   return (
     <div style={{ position:"relative", padding:"2px 4px", maxWidth:130 }}>
       <select className="fin-cell" value={value} onChange={e => {
@@ -1320,8 +1325,8 @@ function FinanceiroApp({ senha, sair }) {
   Object.keys(COR_USER).forEach(k => delete COR_USER[k]);
   Object.entries(cores).forEach(([k, v]) => { if (v && v.cor) COR_USER[k] = v.cor; });
   ESP_ATUAL = espaco;
-  const escolherCor = (esp, c, cor) => setCores(cs => ({ ...cs, [`${esp}|${c}`]: { cor: cor.toLowerCase() === corPadrao(c).toLowerCase() ? null : cor, upd: Date.now() } }));
-  const voltarCores = esp => setCores(cs => Object.fromEntries(Object.entries(cs).map(([k, v]) => [k, k.startsWith(esp + "|") ? { cor:null, upd:Date.now() } : v])));
+  const escolherCor = (k, cor, orig) => setCores(cs => ({ ...cs, [k]: { cor: cor.toLowerCase() === String(orig).toLowerCase() ? null : cor, upd: Date.now() } }));
+  const voltarCores = chaves => setCores(cs => { const n = { ...cs }; chaves.forEach(k => { if (n[k]?.cor) n[k] = { cor:null, upd:Date.now() }; }); return n; });
   const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
@@ -1962,8 +1967,13 @@ function IconePaleta() {
 function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
   const [esp, setEsp] = useState(espacoInicial);
   const [aberta, setAberta] = useState(null);
-  const lista = listaCat(esp);
-  const mudou = lista.some(c => cores[`${esp}|${c}`]?.cor);
+  const receitas = esp === "receitas";
+  // itens da aba: [chave, nome, cor atual, cor original, título da seção]
+  const itens = receitas
+    ? ABAS_CHIP.flatMap(([f, t]) => opcoesChip(f).map((v, i) => { const o = chipOf(f, v); const orig = o ? o[1] : "#E6DEF7";
+        return [`${f}|${v}`, o?.[3] || v, corChip(f, v) || orig, orig, i === 0 ? t : null]; }))
+    : listaCat(esp).map(c => [`${esp}|${c}`, c, corCat(c, esp), corPadrao(c), null]);
+  const mudou = itens.some(([k]) => cores[k]?.cor);
   return (
     <div onClick={onFechar} style={{ position:"fixed", inset:0, background:"rgba(42,33,64,.35)", zIndex:40, display:"flex",
       alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -1975,18 +1985,19 @@ function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
           <button onClick={onFechar} style={{ marginLeft:"auto", border:"none", background:"none", color:P.suave, fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>✕ fechar</button>
         </div>
         <div style={{ display:"flex", gap:6, padding:"0 16px 10px" }}>
-          {Object.entries(ESPACOS).map(([k, e]) => (
+          {[...Object.entries(ESPACOS), ["receitas", { icone:"💜", nome:"Receitas" }]].map(([k, e]) => (
             <button key={k} onClick={() => { setEsp(k); setAberta(null); }} style={{ border:"none", borderRadius:999, padding:"5px 12px", fontFamily:FONT,
               fontSize:11.5, fontWeight:700, cursor:"pointer", background: esp === k ? P.roxo : P.lilasClaro, color: esp === k ? "#fff" : P.suave }}>
               {e.icone} {e.nome}</button>
           ))}
         </div>
         <div style={{ overflowY:"auto" }}>
-          {lista.map(c => {
-            const cor = corCat(c, esp), open = aberta === c;
+          {itens.map(([k, c, cor, orig, secao]) => {
+            const open = aberta === k;
             return (
-              <div key={c} style={{ borderTop:`1px solid ${P.linha}`, background: open ? "#F5F1FD" : "transparent" }}>
-                <button onClick={() => setAberta(open ? null : c)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"9px 16px",
+              <div key={k} style={{ borderTop:`1px solid ${P.linha}`, background: open ? "#F5F1FD" : "transparent" }}>
+                {secao && <div style={{ padding:"8px 16px 2px", fontSize:10, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{secao}</div>}
+                <button onClick={() => setAberta(open ? null : k)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"9px 16px",
                   border:"none", background:"none", cursor:"pointer", fontFamily:FONT, fontSize:13, color:P.tinta, textAlign:"left" }}>
                   <span style={{ width:18, height:18, borderRadius:6, background:cor, flex:"0 0 auto" }}/>
                   <span>{c}</span>
@@ -1995,7 +2006,7 @@ function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
                 {open && (
                   <div style={{ display:"flex", flexWrap:"wrap", gap:8, padding:"2px 16px 14px 44px" }}>
                     {PALETA.map(p => (
-                      <button key={p} onClick={() => onCor(esp, c, p)} aria-label={`Cor ${p}`} title={p}
+                      <button key={p} onClick={() => onCor(k, p, orig)} aria-label={`Cor ${p}`} title={p}
                         style={{ width:28, height:28, borderRadius:8, background:p, border:"none", cursor:"pointer",
                           boxShadow: p.toLowerCase() === cor.toLowerCase() ? `0 0 0 2px #fff, 0 0 0 4px ${P.roxo}` : "none" }}/>
                     ))}
@@ -2007,7 +2018,7 @@ function PainelCores({ espacoInicial, cores, onCor, onVoltar, onFechar }) {
         </div>
         <div style={{ padding:"10px 16px", borderTop:`1px solid ${P.linha}`, display:"flex", alignItems:"center", gap:8, fontSize:11.5, color:P.suave }}>
           <span>Toque na categoria e escolha a cor</span>
-          <button onClick={() => onVoltar(esp)} disabled={!mudou} style={{ marginLeft:"auto", border:"none", background:"none", fontFamily:FONT,
+          <button onClick={() => onVoltar(itens.map(([k]) => k))} disabled={!mudou} style={{ marginLeft:"auto", border:"none", background:"none", fontFamily:FONT,
             fontSize:12, fontWeight:800, color: mudou ? P.roxo : "#C8C2D8", cursor: mudou ? "pointer" : "default" }}>↺ Voltar às cores originais</button>
         </div>
       </div>
