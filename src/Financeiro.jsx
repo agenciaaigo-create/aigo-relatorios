@@ -1206,7 +1206,254 @@ function GeralPessoal({ rows, ano, onPick }) {
 }
 
 // ── Aba "Geral" (resumo do ano) ────────────────────────────────────────────
-function Geral({ rows, ano, onPick }) {
+// ── Clientes (aba Geral da Empresa): quem paga e quanto, como na sua planilha ──
+function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
+  const lista = Object.entries(clientes).filter(([id, c]) => id !== "_meta" && !c.apagado).map(([id, c]) => ({ id, ...c }))
+    .sort((a, b) => (a.ord || 0) - (b.ord || 0));
+  const meta = clientes._meta?.valor || 0;
+  const total = lista.reduce((t, c) => t + (c.valor || 0), 0);
+  const pct = meta ? Math.min(100, total / meta * 100) : 0;
+  const [editMeta, setEditMeta] = useState(false);
+  const [vista, setVista] = useState(() => { try { return localStorage.getItem("aigo-fin-clientes-vista") || "cartoes"; } catch { return "cartoes"; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-clientes-vista", vista); } catch {} }, [vista]);
+  const porValor = [...lista].filter(c => c.valor > 0).sort((a, b) => b.valor - a.valor);
+  const corDe = id => PALETA[[2, 13, 4, 11, 0, 7, 14, 9, 3, 12, 5, 10, 1, 15, 6, 8][Math.max(0, porValor.findIndex(c => c.id === id)) % 16]];
+  function novo() { onSalvar(uid(), { nome:"", servico:"Social Media", valor:0, inicio:"", info:"", ord:Date.now() }); }
+  function trazer() {
+    const ja = new Set(lista.map(c => semAcento(c.nome)));
+    const porNome = {};
+    rows.filter(r => r.secao === "receita" && r.descricao.trim() && r.servico === "Social Media")
+      .sort((a, b) => a.mes.localeCompare(b.mes)).forEach(r => { porNome[semAcento(r.descricao)] = r; });
+    const novos = Object.entries(porNome).filter(([k]) => !ja.has(k));
+    novos.forEach(([, r], i) => onSalvar(uid(), { nome:r.descricao.trim(), servico:r.servico, valor:r.valor, inicio:"", info:"", ord:Date.now() + i }));
+    setMsg(novos.length ? `✅ ${novos.length} cliente${novos.length > 1 ? "s" : ""} de Social Media ${novos.length > 1 ? "trazidos" : "trazido"} das receitas (com o último valor pago). Confira os valores.`
+      : "Todos os clientes de Social Media das receitas já estão na lista.");
+  }
+  async function copiar() {
+    const linhas = lista.map(c => [c.nome, c.servico, num(c.valor), c.inicio ? c.inicio.split("-").reverse().join("/") : "", c.info].join("\t")).join("\n");
+    try { await navigator.clipboard.writeText(linhas); setMsg(`📋 ${lista.length} clientes copiados (Cliente, Serviço, Valor, Início do contrato, Info). Cole na célula "Cliente" da primeira linha da sua planilha.`); }
+    catch { setMsg("⚠️ Não consegui copiar. Tente de novo."); }
+  }
+  const th = { background:P.lilas, fontSize:10.5, fontWeight:700, padding:"5px 6px", textAlign:"left", whiteSpace:"nowrap", borderRight:`1px solid ${P.papel}` };
+  const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0 };
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="👥 Clientes" sub={`${lista.length} cliente${lista.length !== 1 ? "s" : ""} · ${brl(total)} por mês`}>
+        {[["cartoes", "▦ Cartões"], ["tabela", "☰ Editar"]].map(([k, t]) => (
+          <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k} style={{ background: vista === k ? "#fff" : "rgba(255,255,255,.14)",
+            color: vista === k ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:8, padding:"4px 10px", fontFamily:FONT,
+            fontSize:11, fontWeight:700, cursor:"pointer" }}>{t}</button>
+        ))}
+        <HeadBtn onClick={trazer} title="Cria a lista a partir das receitas de Social Media">↧ Trazer das receitas</HeadBtn>
+        <HeadBtn onClick={copiar} disabled={!lista.length}>📋 Copiar tudo</HeadBtn>
+      </Cabeca>
+      {vista === "cartoes" ? <CartoesClientes lista={lista} porValor={porValor} total={total} meta={meta} corDe={corDe}
+        onMeta={() => { setVista("tabela"); setEditMeta(true); }} onEditar={() => setVista("tabela")} onNovo={() => { novo(); setVista("tabela"); }}/> : <>
+      <div style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+        <div style={{ fontSize:12, fontWeight:700, color:P.roxo, whiteSpace:"nowrap" }}>
+          {editMeta ? <span>Meta: <input autoFocus defaultValue={meta ? num(meta) : ""} inputMode="decimal" placeholder="50.000,00"
+              onBlur={e => { onMeta(parseValor(e.target.value)); setEditMeta(false); }} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+              style={{ width:110, fontFamily:FONT, fontSize:12, fontWeight:700, border:`1px solid ${P.lilas}`, borderRadius:6, padding:"3px 6px" }}/></span>
+          : <button onClick={() => setEditMeta(true)} title="Mudar a meta" style={{ border:"none", background:"none", padding:0, fontFamily:FONT,
+              fontSize:12, fontWeight:800, color:P.roxo, cursor:"pointer" }}>🎯 Meta {meta ? brl(meta) : "— definir"} ✎</button>}
+        </div>
+        {meta > 0 && <>
+          <div style={{ flex:1, minWidth:140, height:10, background:P.lilasClaro, borderRadius:999, overflow:"hidden" }}>
+            <div style={{ width:`${pct}%`, height:"100%", background:"linear-gradient(90deg,#7B4FD6,#3B1C7E)", borderRadius:999 }}/>
+          </div>
+          <span style={{ fontSize:12, fontWeight:800, whiteSpace:"nowrap" }}>{brl(total)} <span style={{ color:P.suave, fontWeight:600 }}>({pct.toFixed(0)}%)</span></span>
+        </>}
+      </div>
+      <div style={{ overflowX:"auto" }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:720, fontFamily:FONT }}>
+          <thead><tr>
+            <th style={{ ...th, width:"26%" }}>Cliente</th><th style={{ ...th, width:130 }}>Serviço</th><th style={{ ...th, textAlign:"right", width:110 }}>Valor</th>
+            <th style={{ ...th, width:130 }}>Início do contrato</th><th style={th}>Info</th><th style={{ ...th, width:26, borderRight:"none" }}/>
+          </tr></thead>
+          <tbody>
+            {lista.map(c => {
+              const set = patch => onSalvar(c.id, { ...c, ...patch });
+              return (
+                <tr key={c.id} className="fin-row">
+                  <td style={td}><TextCell value={c.nome} onChange={v => set({ nome:v })} bold placeholder="Nome do cliente"/></td>
+                  <td style={td}><ChipSelect field="servico" value={c.servico} onChange={v => set({ servico:v })}/></td>
+                  <td style={td}><MoneyCell value={c.valor} onChange={v => set({ valor:v })}/></td>
+                  <td style={td}><input type="date" className="fin-cell" value={c.inicio || ""} onChange={e => set({ inicio:e.target.value })}
+                    style={{ ...cellBase, color: c.inicio ? P.tinta : P.suave }}/></td>
+                  <td style={td}><TextCell value={c.info} onChange={v => set({ info:v })}/></td>
+                  <td style={{ ...td, borderRight:"none", textAlign:"center" }}>
+                    <button className="fin-del" onClick={() => { if (!c.nome || window.confirm(`Tirar "${c.nome}" da lista de clientes?`)) onApagar(c.id); }}
+                      title="Tirar da lista" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", padding:"4px 6px" }}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={novo} style={{ width:"100%", textAlign:"left", border:"none", background:P.lilasClaro, color:P.roxo, fontFamily:FONT,
+        fontSize:12, fontWeight:700, padding:"8px 14px", cursor:"pointer" }}>+ Adicionar cliente</button>
+      </>}
+      {vista === "tabela" && <div style={{ display:"flex", borderTop:`1px solid ${P.linha}` }}>
+        {[["Clientes", String(lista.length)], ["Total por mês", brl(total)], ["Ticket médio", lista.length ? brl(total / lista.length) : "—"]].map(([l, v], i) => (
+          <div key={l} style={{ flex:1, padding:"9px 14px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
+            <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+            <div style={{ fontSize:15, fontWeight:800, color: i === 1 ? P.roxo : P.tinta }}>{v}</div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+// Tempo de contrato: "2 anos e 3 meses"
+function tempoDeCasa(inicio) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio || "")) return "";
+  const [y, m, d] = inicio.split("-").map(Number), h = new Date();
+  let meses = (h.getFullYear() - y) * 12 + (h.getMonth() + 1 - m) - (h.getDate() < d ? 1 : 0);
+  if (meses < 0) return "começa em breve";
+  if (meses < 1) return "cliente novo";
+  const a = Math.floor(meses / 12), r = meses % 12;
+  return [a ? `${a} ano${a > 1 ? "s" : ""}` : "", r ? `${r} ${r > 1 ? "meses" : "mês"}` : ""].filter(Boolean).join(" e ");
+}
+const iniciais = n => (n || "?").trim().split(/\s+/).filter(w => w.length > 1 || /\d/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+
+function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar, onNovo }) {
+  const oculto = useContext(OcultarCtx);
+  const R = 52, C = 2 * Math.PI * R, pct = meta ? Math.min(1, total / meta) : 0;
+  const v = x => oculto ? TRACOS : brl(x);
+  const top = porValor.slice(0, 8), resto = porValor.slice(8).reduce((t, c) => t + c.valor, 0);
+  return (
+    <div style={{ padding:14 }}>
+      <div style={{ display:"flex", gap:18, alignItems:"center", flexWrap:"wrap", marginBottom:14 }}>
+        <button onClick={onMeta} title="Mudar a meta" style={{ border:"none", background:"none", padding:0, cursor:"pointer", position:"relative", width:132, height:132, flex:"0 0 auto" }}>
+          <svg viewBox="0 0 132 132" width="132" height="132">
+            <circle cx="66" cy="66" r={R} fill="none" stroke={P.lilasClaro} strokeWidth="13"/>
+            {meta > 0 && <circle cx="66" cy="66" r={R} fill="none" stroke="url(#gMeta)" strokeWidth="13" strokeLinecap="round"
+              strokeDasharray={`${C * pct} ${C}`} transform="rotate(-90 66 66)"/>}
+            <defs><linearGradient id="gMeta" x1="0" x2="1"><stop offset="0" stopColor="#7B4FD6"/><stop offset="1" stopColor="#3B1C7E"/></linearGradient></defs>
+          </svg>
+          <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:FONT }}>
+            <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave }}>META</span>
+            <b style={{ fontSize:22, color:P.roxo }}>{meta ? `${Math.round(pct * 100)}%` : "—"}</b>
+            <span style={{ fontSize:10, color:P.suave }}>{meta ? (oculto ? TRACOS : brl(meta).replace(",00", "")) : "definir"}</span>
+          </div>
+        </button>
+        <div style={{ flex:"1 1 260px", minWidth:0 }}>
+          <div style={{ display:"flex", gap:22, flexWrap:"wrap", marginBottom:10 }}>
+            {[["Por mês", v(total), P.roxo], ["Clientes", String(lista.length), P.tinta], ["Ticket médio", lista.length ? v(total / lista.length) : "—", P.tinta],
+              ...(meta > total ? [["Falta para a meta", v(meta - total), P.laranja]] : meta ? [["Meta batida! 🎉", v(total - meta) + " a mais", P.verde]] : [])].map(([l, val, cor]) => (
+              <div key={l}><div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+                <div style={{ fontSize:19, fontWeight:900, color:cor }}>{val}</div></div>
+            ))}
+          </div>
+          {total > 0 && <>
+            <div style={{ display:"flex", gap:2, height:16, borderRadius:6, overflow:"hidden" }}>
+              {top.map(c => <div key={c.id} title={`${c.nome}: ${brl(c.valor)}`} style={{ width:`${c.valor / total * 100}%`, background:corDe(c.id) }}/>)}
+              {resto > 0 && <div title={`Outros: ${brl(resto)}`} style={{ width:`${resto / total * 100}%`, background:"#C8C2D8" }}/>}
+            </div>
+            <div style={{ fontSize:10.5, color:P.suave, marginTop:5 }}>Quanto cada cliente representa no total do mês</div>
+          </>}
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:10 }}>
+        {[...lista].sort((a, b) => (b.valor || 0) - (a.valor || 0)).map(c => {
+          const cor = corDe(c.id), tempo = tempoDeCasa(c.inicio);
+          return (
+            <button key={c.id} onClick={onEditar} title="Clique para editar" style={{ textAlign:"left", border:`1px solid ${P.linha}`, borderRadius:12, background:P.papel,
+              padding:"11px 12px", cursor:"pointer", fontFamily:FONT, color:P.tinta, display:"flex", flexDirection:"column", gap:6, borderTop:`4px solid ${cor}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:9, minWidth:0 }}>
+                <span style={{ width:34, height:34, borderRadius:"50%", background:cor, color:textoSobre(cor), display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:12.5, fontWeight:800, flex:"0 0 auto" }}>{iniciais(c.nome)}</span>
+                <span style={{ minWidth:0 }}>
+                  <b style={{ display:"block", fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.nome || "(sem nome)"}</b>
+                  <span style={{ fontSize:10.5, color:P.suave }}>{c.servico}</span>
+                </span>
+              </div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                <b style={{ fontSize:17 }}>{v(c.valor || 0)}</b>
+                {total > 0 && c.valor > 0 && <span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{(c.valor / total * 100).toFixed(0)}%</span>}
+              </div>
+              {(tempo || c.info) && <div style={{ fontSize:10.5, color:P.suave, lineHeight:1.4 }}>
+                {tempo && <div>🗓 {/^\d/.test(tempo) ? `cliente há ${tempo}` : tempo}</div>}
+                {c.info && <div style={{ color:P.roxo, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {c.info}</div>}
+              </div>}
+            </button>
+          );
+        })}
+        <button onClick={onNovo} style={{ border:`2px dashed ${P.lilas}`, borderRadius:12, background:"transparent", color:P.roxo, fontFamily:FONT,
+          fontSize:12.5, fontWeight:700, cursor:"pointer", minHeight:96 }}>+ Adicionar cliente</button>
+      </div>
+    </div>
+  );
+}
+
+// ── 🚗 Maringá mês a mês (gastos da categoria "Maringá e viagens") ──
+function GastosMaringa({ rows, ano, onPick }) {
+  const [aberto, setAberto] = useState(null);
+  const CAT = "Maringá e viagens";
+  const gs = rows.filter(r => r.secao !== "receita" && r.categoria === CAT && r.mes.startsWith(`${ano}-`));
+  const meses = MESES.map((nome, m) => { const rs = gs.filter(r => r.mes === mesKey(ano, m)); return { nome, m, rs, total: rs.reduce((t, r) => t + r.valor, 0) }; });
+  const comGasto = meses.filter(d => d.total > 0);
+  const total = gs.reduce((t, r) => t + r.valor, 0);
+  const mx = Math.max(1, ...meses.map(d => d.total));
+  const caro = comGasto.reduce((a, d) => !a || d.total > a.total ? d : a, null);
+  const cor = corCat(CAT, "empresa");
+  const W = 1000, H = 150, pl = 4, pb = 22, bw = (W - pl * 2) / 12;
+  const det = aberto != null ? meses[aberto] : null;
+  const porItem = det ? Object.values(det.rs.reduce((o, r) => { const k = semAcento(r.descricao) || "-"; o[k] = o[k] || { nome:r.descricao || "(sem descrição)", valor:0, n:0 }; o[k].valor += r.valor; o[k].n++; return o; }, {})).sort((a, b) => b.valor - a.valor) : [];
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo={`🚗 Maringá · ${ano}`} sub="gastos com a categoria Maringá e viagens, mês a mês"/>
+      {!total ? <div style={{ padding:"26px 16px", textAlign:"center", fontSize:12, color:P.suave }}>Nenhum gasto com a categoria "{CAT}" em {ano}.</div> : <>
+        <div style={{ display:"flex", flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+          {[["No ano", brl(total)], ["Média por mês", brl(total / Math.max(1, comGasto.length)), `${comGasto.length} ${comGasto.length > 1 ? "meses" : "mês"} com gasto`],
+            ["Mês mais caro", caro ? caro.nome : "—", caro ? brl(caro.total) : ""]].map(([l, v, sub], i) => (
+            <div key={l} style={{ flex:"1 1 140px", padding:"10px 14px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
+              <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+              <div style={{ fontSize:18, fontWeight:800 }}>{v}</div>
+              {sub && <div style={{ fontSize:11, color:P.suave }}>{sub}</div>}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:"12px 14px 4px" }}>
+          <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxHeight:210 }} role="img" aria-label={`Gastos com Maringá por mês em ${ano}`}>
+            {meses.map((d, i) => {
+              const h = d.total / mx * (H - pb - 20), x = pl + i * bw, on = aberto === i;
+              return (
+                <g key={i} style={{ cursor: d.total ? "pointer" : "default" }} onClick={() => d.total && setAberto(on ? null : i)}>
+                  <rect x={x} y={0} width={bw} height={H - pb} fill={on ? "#F5F1FD" : "transparent"} rx="6"/>
+                  {d.total > 0 && <rect x={x + bw * .28} y={H - pb - h} width={bw * .44} height={h} rx="4" fill={cor} opacity={aberto == null || on ? 1 : .45}/>}
+                  {d.total > 0 && <text x={x + bw / 2} y={H - pb - h - 5} textAnchor="middle" fontSize="10" fontWeight="700" fill={P.tinta} fontFamily="Montserrat, sans-serif">
+                    {d.total >= 1000 ? `${(d.total / 1000).toFixed(1).replace(".", ",")}k` : Math.round(d.total)}</text>}
+                  <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="10.5" fontWeight={on ? 800 : 600} fill={on ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{d.nome.slice(0, 3)}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+        {det ? (
+          <div style={{ padding:"4px 14px 12px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, margin:"4px 0 6px" }}>
+              <b style={{ color:P.roxo }}>{det.nome}: {brl(det.total)}</b><span style={{ color:P.suave }}>· {det.rs.length} lançamento{det.rs.length > 1 ? "s" : ""}</span>
+              <button onClick={() => onPick(det.m)} style={{ marginLeft:"auto", border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8,
+                padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" }}>Abrir {det.nome} →</button>
+            </div>
+            {porItem.map(it => (
+              <div key={it.nome} style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, padding:"5px 0", borderTop:`1px solid ${P.linha}` }}>
+                <span style={{ width:8, height:8, borderRadius:2, background:cor }}/><span>{it.nome}</span>
+                {it.n > 1 && <span style={{ color:P.suave, fontSize:11 }}>{it.n}×</span>}
+                <b style={{ marginLeft:"auto" }}>{brl(it.valor)}</b>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ padding:"0 14px 12px", fontSize:11, color:P.suave }}>Clique num mês para ver o que foi (combustível, pedágio, almoço…).</div>}
+      </>}
+    </div>
+  );
+}
+
+function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta, setMsg }) {
   const [hover, setHover] = useState(null);
   const data = MESES.map((nome, m) => {
     const rs = rows.filter(r => r.mes === mesKey(ano, m));
@@ -1237,7 +1484,11 @@ function Geral({ rows, ano, onPick }) {
         <Kpi label="20% empresa" value={brl(tot("receitas") * .2)} color={P.laranja} sub="Soma da coluna 20% das receitas"/>
       </div>
 
+      <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/>
+
       <ParaOndeFoi rows={rows.filter(r => r.secao !== "receita" && r.mes.startsWith(`${ano}-`))} titulo={`${ano}`}/>
+
+      <GastosMaringa rows={rows} ano={ano} onPick={onPick}/>
 
       <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
         <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>
@@ -1317,7 +1568,11 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem("aigo-fin-ocultar", ocultar ? "1" : "0"); } catch {} }, [ocultar]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
-  atualizarCatExtra(review.length ? [...rows, ...review] : rows);   // categorias criadas (vêm dos lançamentos)
+  // 👥 clientes (aba Geral) — sincronizam pela nuvem
+  const [clientes, setClientes] = useState(() => lerJSON("aigo-fin-clientes", {}));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-clientes", JSON.stringify(clientes)); } catch {} }, [clientes]);
+  const servicosClientes = Object.entries(clientes).filter(([k, c]) => k !== "_meta" && !c.apagado && c.servico).map(([, c]) => ({ secao:"receita", servico:c.servico }));
+  atualizarCatExtra([...rows, ...review, ...servicosClientes]);   // categorias e opções criadas (vêm dos lançamentos e clientes)
   // 🎨 cores escolhidas (sincronizam pela nuvem)
   const [cores, setCores] = useState(() => lerJSON("aigo-fin-cores", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-cores", JSON.stringify(cores)); } catch {} }, [cores]);
@@ -1359,8 +1614,8 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem(APAG_KEY, JSON.stringify(apagados)); } catch {} }, [apagados]);
 
   // ── Nuvem: manda o que este aparelho tem e recebe tudo já juntado com os outros aparelhos ──
-  const atual = useRef({ rows, apagados, cores });
-  atual.current = { rows, apagados, cores };
+  const atual = useRef({ rows, apagados, cores, clientes });
+  atual.current = { rows, apagados, cores, clientes };
   const sync = useRef({ rodando:false, pendente:false });
   async function sincronizar() {
     if (sync.current.rodando) { sync.current.pendente = true; return; }
@@ -1370,19 +1625,20 @@ function FinanceiroApp({ senha, sair }) {
       const enviado = atual.current;
       const resp = await fetch("/api/fin-dados", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados, cores: enviado.cores }),
+        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados, cores: enviado.cores, clientes: enviado.clientes }),
       });
       if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (resp.status === 503 && out.semNuvem) { setNuvem({ estado:"sem", quando:null }); return; }
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
-      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados || atual.current.cores !== enviado.cores) {
+      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados || atual.current.cores !== enviado.cores || atual.current.clientes !== enviado.clientes) {
         sync.current.pendente = true;          // mudou algo enquanto enviava: manda de novo antes de aplicar
       } else {
         const daNuvem = (out.rows || []).map(normalize);
         if (!igual(daNuvem, enviado.rows)) setRows(sortRows(daNuvem));
         if (!igual(out.apagados || [], enviado.apagados)) setApagados(out.apagados || []);
         if (out.cores && typeof out.cores === "object" && JSON.stringify(out.cores) !== JSON.stringify(enviado.cores)) setCores(out.cores);
+        if (out.clientes && typeof out.clientes === "object" && JSON.stringify(out.clientes) !== JSON.stringify(enviado.clientes)) setClientes(out.clientes);
       }
       setNuvem({ estado:"ok", quando:new Date() });
     } catch {
@@ -1393,7 +1649,7 @@ function FinanceiroApp({ senha, sair }) {
     }
   }
   // depois de cada alteração (espera 1 segundo sem mexer)
-  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados, cores]);
+  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados, cores, clientes]);
   // a cada 15 segundos e ao voltar para a aba, para receber o que foi lançado no outro aparelho
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === "visible") sincronizar(); }, 15000);
@@ -1856,7 +2112,10 @@ function FinanceiroApp({ senha, sair }) {
           </div>
         )}
 
-        {aba === "geral" ? (pessoal ? <GeralPessoal rows={rowsEsp} ano={ano} onPick={setAba}/> : <Geral rows={rowsEsp} ano={ano} onPick={setAba}/>) : pessoal ? (
+        {aba === "geral" ? (pessoal ? <GeralPessoal rows={rowsEsp} ano={ano} onPick={setAba}/> : <Geral rows={rowsEsp} ano={ano} onPick={setAba} clientes={clientes} setMsg={setMsg}
+          onCliente={(id, c) => setClientes(cs => ({ ...cs, [id]: { ...c, upd:Date.now() } }))}
+          onApagarCliente={id => setClientes(cs => ({ ...cs, [id]: { ...cs[id], apagado:true, upd:Date.now() } }))}
+          onMeta={v => setClientes(cs => ({ ...cs, _meta: { valor:v, upd:Date.now() } }))}/>) : pessoal ? (
           <MesPessoal {...{ ano, aba, mes, bySec, analise, edit, add, remove, sortDia, copiar, sel, toggleSel, toggleAll, destaque, puxarFixos, setAno, setAba,
             mudarGrupo: (id, g) => edit(id, { categoria:g }) }}/>
         ) : (
