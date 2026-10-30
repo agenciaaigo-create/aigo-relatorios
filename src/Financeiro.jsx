@@ -1206,6 +1206,464 @@ function GeralPessoal({ rows, ano, onPick }) {
 }
 
 // ── Aba "Geral" (resumo do ano) ────────────────────────────────────────────
+// ── 💰 Investimentos ───────────────────────────────────────────────────────
+// Caixinhas/CDI: rendem pelo CDI oficial do Banco Central × o % do investimento (estimativa antes do IR).
+// Ações: quantidade × cotação da B3 (atrasada ~15 min). Saldo em conta: não rende.
+const TIPOS_INV = {
+  cdi:   { nome:"Caixinha / CDI", cor:"#1baf7a" },
+  acao:  { nome:"Ações", cor:"#6250d6" },
+  caixa: { nome:"Saldo para investir", cor:"#9A94AC" },
+};
+const CORES_BANCO = ["#8e44ad", "#2a78d6", "#eda100", "#e34948", "#008300", "#eb6834", "#0f8b8d", "#c2185b"];
+const hojeStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const somaDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const fimDoMes = mes => { const [y, m] = mes.split("-").map(Number); return `${mes}-${pad(new Date(y, m, 0).getDate())}`; };
+const mesAnt = mes => { const [y, m] = mes.split("-").map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`; };
+const dataBR = iso => iso ? iso.split("-").reverse().join("/") : "";
+const pctFmt = (v, casas = 1) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(casas).replace(".", ",")}%`;
+
+// Fator acumulado do CDI × pct entre d0 (exclusive) e d1 (inclusive), só dias úteis
+function fatorCDI(cdi, pct, d0, d1) {
+  if (!d0 || !d1 || d1 <= d0 || !pct) return 1;
+  let f = 1;
+  for (let d = somaDias(d0, 1); d <= d1; d = somaDias(d, 1)) {
+    let t = cdi.taxas[d];
+    if (t == null && cdi.fim && d > cdi.fim) { const wd = new Date(d + "T12:00:00").getDay(); if (wd !== 0 && wd !== 6) t = cdi.ultima; }
+    if (t) f *= 1 + t / 100 * pct / 100;
+  }
+  return f;
+}
+const sinal = m => m.tipo === "resgate" ? -1 : 1;
+function precoEm(a, D) {
+  if (!a) return null;
+  if (D >= hojeStr()) return a.preco;
+  let p = null;
+  for (const [d, c] of a.hist || []) { if (d <= D) p = c; else break; }
+  return p ?? a.hist?.[0]?.[1] ?? a.preco;
+}
+// Valor de um investimento numa data (null se ainda não existia)
+function valorEm(it, movs, D, merc) {
+  if (!it.dataBase || D < it.dataBase) return null;
+  const ms = movs.filter(m => m.inv === it.id && m.data > it.dataBase && m.data <= D);
+  if (it.tipo === "cdi") return (it.saldo || 0) * fatorCDI(merc.cdi, it.pct, it.dataBase, D)
+    + ms.reduce((t, m) => t + sinal(m) * (m.valor || 0) * fatorCDI(merc.cdi, it.pct, m.data, D), 0);
+  if (it.tipo === "acao") {
+    const q = (it.qtd || 0) + ms.reduce((t, m) => t + sinal(m) * (m.qtd || 0), 0);
+    const p = precoEm(merc.acoes[it.ticker], D);
+    return p == null ? (it.custo || 0) + ms.reduce((t, m) => t + sinal(m) * (m.valor || 0), 0) : q * p;
+  }
+  return (it.saldo || 0) + ms.reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
+}
+const baseDe = it => it.tipo === "acao" ? (it.custo || 0) : (it.saldo || 0);
+const liquido = (it, movs, de, ate) => movs.filter(m => m.inv === it.id && m.data > de && m.data <= ate && m.data > it.dataBase).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
+// Quanto rendeu entre duas datas (desconta o que entrou e saiu)
+function rendeu(it, movs, de, ate, merc) {
+  const v1 = valorEm(it, movs, ate, merc);
+  if (v1 == null) return 0;
+  const ini = de >= it.dataBase ? de : it.dataBase;
+  const v0 = de >= it.dataBase ? valorEm(it, movs, de, merc) : baseDe(it);
+  return v1 - v0 - liquido(it, movs, ini, ate);
+}
+function custoAcao(it, movs) { return (it.custo || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0); }
+
+// Busca o CDI e as cotações (a cada 10 minutos com a aba aberta)
+function useMercado(tickers, desde) {
+  const [m, setM] = useState({ cdi:{ taxas:{}, fim:null, ultima:0 }, acoes:{}, erros:[], quando:null, carregando:true });
+  const chave = tickers.join(",") + "|" + desde;
+  useEffect(() => {
+    let vivo = true;
+    async function buscar() {
+      try {
+        const r = await fetch(`/api/fin-mercado?desde=${desde}&tickers=${tickers.join(",")}`);
+        const j = await r.json();
+        if (!vivo) return;
+        const taxas = Object.fromEntries((j.cdi || []).map(x => [x.data, x.taxa]));
+        const fim = (j.cdi || []).length ? j.cdi[j.cdi.length - 1].data : null;
+        setM({ cdi:{ taxas, fim, ultima: fim ? taxas[fim] : 0 }, acoes:j.acoes || {}, erros:j.erros || [], quando:new Date(), carregando:false });
+      } catch { if (vivo) setM(x => ({ ...x, erros:["Sem conexão com os dados do mercado"], carregando:false })); }
+    }
+    buscar();
+    const t = setInterval(() => { if (document.visibilityState === "visible") buscar(); }, 10 * 60 * 1000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [chave]);
+  return m;
+}
+
+function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
+  const oculto = useContext(OcultarCtx);
+  const v = x => oculto ? TRACOS : brl(x);
+  const vs = x => oculto ? TRACOS : `${x >= 0 ? "+" : "−"}${brl(Math.abs(x))}`;
+  const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov").map(([id, x]) => ({ id, ...x }))
+    .sort((a, b) => (a.ord || 0) - (b.ord || 0));
+  const movs = Object.entries(invest).filter(([, x]) => x.kind === "mov" && !x.apagado).map(([id, x]) => ({ id, ...x }))
+    .sort((a, b) => b.data.localeCompare(a.data));
+  const meta = invest._meta?.valor || 0;
+  const tickers = [...new Set(itens.filter(i => i.tipo === "acao" && i.ticker).map(i => i.ticker))].sort();
+  const hoje = hojeStr(), mesAtual = hoje.slice(0, 7);
+  const primeiro = itens.reduce((a, i) => !a || (i.dataBase && i.dataBase < a) ? i.dataBase : a, null) || hoje;
+  const desde = somaDias(primeiro < somaDias(hoje, -400) ? somaDias(hoje, -400) : primeiro, -10);
+  const merc = useMercado(tickers, desde);
+  const [vista, setVista] = useState("cartoes");
+  const [porBanco, setPorBanco] = useState(false);
+  const [form, setForm] = useState(null);      // investimento sendo criado/editado
+  const [formMov, setFormMov] = useState(null);
+
+  const ontem = somaDias(hoje, -1), fimAnt = fimDoMes(mesAnt(mesAtual));
+  const linhas = itens.map(it => {
+    const atual = valorEm(it, movs, hoje, merc) ?? 0;
+    return { it, atual, mes: rendeu(it, movs, fimAnt, hoje, merc), dia: rendeu(it, movs, ontem, hoje, merc),
+      total: it.tipo === "acao" ? atual - custoAcao(it, movs) : rendeu(it, movs, somaDias(it.dataBase || hoje, -1), hoje, merc) };
+  });
+  const soma = k => linhas.reduce((t, l) => t + l[k], 0);
+  const patrimonio = soma("atual"), rendMes = soma("mes"), rendDia = soma("dia");
+  const aportesMes = movs.filter(m => m.data.startsWith(mesAtual)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
+  const cdiAno = merc.cdi.ultima ? (Math.pow(1 + merc.cdi.ultima / 100, 252) - 1) * 100 : 0;
+  const proj12 = linhas.reduce((t, l) => t + (l.it.tipo === "cdi" ? l.atual * Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) : l.atual), 0);
+  const rendMensalCdi = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l.atual * (Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 21) - 1), 0);
+
+  // evolução: fim de cada mês desde o primeiro investimento (até 12) + hoje
+  const meses = [];
+  const proxMes = mm => { const [y, m] = mm.split("-").map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${pad(m + 1)}`; };
+  for (let mm = primeiro.slice(0, 7); mm <= mesAtual && meses.length < 240; mm = proxMes(mm)) meses.push(mm);
+  const serie = meses.slice(-12).map(mm => {
+    const D = mm === mesAtual ? hoje : fimDoMes(mm);
+    return { mes:mm, D, total: itens.reduce((t, it) => t + (valorEm(it, movs, D, merc) ?? 0), 0),
+      rend: itens.reduce((t, it) => t + rendeu(it, movs, fimDoMes(mesAnt(mm)), D, merc), 0),
+      aportes: movs.filter(m => m.data.startsWith(mm)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0) };
+  });
+
+  // distribuição
+  const bancos = [...new Set(itens.map(i => i.instituicao || "—"))];
+  const grupos = porBanco
+    ? bancos.map((b, i) => ({ nome:b, cor:CORES_BANCO[i % CORES_BANCO.length], valor: linhas.filter(l => (l.it.instituicao || "—") === b).reduce((t, l) => t + l.atual, 0) }))
+    : Object.entries(TIPOS_INV).map(([k, t]) => ({ nome:t.nome, cor:t.cor, valor: linhas.filter(l => l.it.tipo === k).reduce((t2, l) => t2 + l.atual, 0) }));
+  const gs = grupos.filter(g => g.valor > 0).sort((a, b) => b.valor - a.valor);
+  const R = 62, C = 2 * Math.PI * R;
+  let off = 0;
+
+  const info = merc.carregando ? "buscando cotações…" : [
+    tickers.length && Object.keys(merc.acoes).length ? `Cotações das ${new Date(Object.values(merc.acoes)[0].hora || merc.quando).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}` : "",
+    merc.cdi.fim ? `CDI de ${dataBR(merc.cdi.fim)}: ${cdiAno.toFixed(2).replace(".", ",")}% ao ano` : "",
+    ...merc.erros.map(e => `⚠ ${e}`)].filter(Boolean).join(" · ");
+
+  const caixaK = { background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px" };
+  const rotK = { fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" };
+
+  if (!itens.length) return (
+    <div style={{ ...caixaBloco, padding:"34px 20px", textAlign:"center" }}>
+      <div style={{ fontSize:34 }}>💰</div>
+      <b style={{ fontSize:17, color:P.roxo }}>Seu cantinho de investimentos</b>
+      <p style={{ fontSize:13, color:P.suave, maxWidth:520, margin:"8px auto 16px", lineHeight:1.6 }}>
+        Cadastre cada investimento uma vez (caixinhas com o % do CDI, ações com a quantidade e quanto pagou, e o saldo parado para investir).
+        Depois o site acompanha sozinho o CDI e as cotações.</p>
+      <Btn primary onClick={() => setForm({ tipo:"cdi", pct:100, dataBase:hoje })}>+ Adicionar investimento</Btn>
+      {form && <FormInvest inicial={form} onFechar={() => setForm(null)} onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }} merc={merc}/>}
+    </div>
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+        <span style={{ fontSize:11, color:P.suave }}>{info}</span>
+        <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
+          <Btn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Aporte / resgate</Btn>
+          <Btn onClick={() => setForm({ tipo:"cdi", pct:100, dataBase:hoje })}>+ Investimento</Btn>
+          <Btn onClick={() => setVista(x => x === "cartoes" ? "tabela" : "cartoes")}>{vista === "cartoes" ? "☰ Editar" : "▦ Cartões"}</Btn>
+        </div>
+      </div>
+
+      <div className="fin-kpis">
+        <div style={caixaK}><div style={rotK}>Patrimônio investido</div><div style={{ fontSize:22, fontWeight:900, marginTop:3 }}>{v(patrimonio)}</div>
+          <div style={{ fontSize:11, color:P.suave }}>em {itens.length} investimento{itens.length > 1 ? "s" : ""}</div></div>
+        <div style={caixaK}><div style={rotK}>Rendeu este mês</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendMes >= 0 ? P.verde : P.vermelho }}>{vs(rendMes)}</div>
+          <div style={{ fontSize:11, color:P.suave }}>{aportesMes ? `aportes do mês: ${v(aportesMes)}` : "sem aportes este mês"}</div></div>
+        <div style={caixaK}><div style={rotK}>Hoje</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendDia >= 0 ? P.verde : P.vermelho }}>{vs(rendDia)}</div>
+          <div style={{ fontSize:11, color:P.suave }}>caixinhas + variação das ações</div></div>
+        <button onClick={() => { const t = window.prompt("Meta de patrimônio (R$):", meta ? num(meta) : ""); if (t != null) onSalvar("_meta", { valor: parseValor(t) }); }}
+          style={{ ...caixaK, textAlign:"left", cursor:"pointer", fontFamily:FONT }}>
+          <div style={rotK}>🎯 Meta {meta ? "" : "— definir"}</div>
+          {meta ? <>
+            <div style={{ fontSize:22, fontWeight:900, marginTop:3, color:P.roxo }}>{Math.round(patrimonio / meta * 100)}%</div>
+            <div style={{ height:7, background:P.lilasClaro, borderRadius:9, overflow:"hidden", margin:"4px 0" }}>
+              <div style={{ width:`${Math.min(100, patrimonio / meta * 100)}%`, height:"100%", background:"linear-gradient(90deg,#7B4FD6,#3B1C7E)" }}/></div>
+            <div style={{ fontSize:11, color:P.suave }}>{v(patrimonio)} de {v(meta)}</div>
+          </> : <div style={{ fontSize:12, color:P.suave, marginTop:6 }}>Clique para definir uma meta de patrimônio</div>}
+        </button>
+      </div>
+
+      <div className="fin-2col">
+        <div style={caixaBloco}>
+          <Cabeca titulo="🥧 Onde está o dinheiro">
+            <button onClick={() => setPorBanco(false)} style={botaoCab(!porBanco)}>Por tipo</button>
+            <button onClick={() => setPorBanco(true)} style={botaoCab(porBanco)}>Por banco</button>
+          </Cabeca>
+          <div style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 16px", flexWrap:"wrap" }}>
+            <svg viewBox="0 0 160 160" width="150" style={{ flex:"0 0 auto" }}>
+              {gs.map(g => { const L = g.valor / (patrimonio || 1) * C; const el = <circle key={g.nome} cx="80" cy="80" r={R} fill="none" stroke={g.cor} strokeWidth="20"
+                strokeDasharray={`${Math.max(0, L - 2)} ${C}`} strokeDashoffset={-off} transform="rotate(-90 80 80)"/>; off += L; return el; })}
+              <text x="80" y="76" textAnchor="middle" fontSize="9" fontWeight="800" fill={P.suave} fontFamily="Montserrat, sans-serif" letterSpacing="1">TOTAL</text>
+              <text x="80" y="95" textAnchor="middle" fontSize="15" fontWeight="900" fill={P.tinta} fontFamily="Montserrat, sans-serif">{oculto ? "R$ ‑‑‑" : brl(patrimonio).replace(/,\d\d$/, "")}</text>
+            </svg>
+            <div style={{ flex:1, minWidth:180 }}>
+              {gs.map(g => (
+                <div key={g.nome} style={{ display:"flex", alignItems:"center", gap:8, fontSize:12.5, padding:"6px 0", borderBottom:`1px solid ${P.linha}` }}>
+                  <span style={{ width:10, height:10, borderRadius:3, background:g.cor }}/>{g.nome}
+                  <b style={{ marginLeft:"auto" }}>{v(g.valor)}</b>
+                  <span style={{ width:36, textAlign:"right", fontSize:11, color:P.suave }}>{(g.valor / (patrimonio || 1) * 100).toFixed(0)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <EvolucaoInvest serie={serie} oculto={oculto}/>
+      </div>
+
+      {vista === "cartoes" ? (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
+          {linhas.map(({ it, atual, mes, dia, total }) => {
+            const t = TIPOS_INV[it.tipo] || TIPOS_INV.caixa, a = merc.acoes[it.ticker];
+            const q = it.tipo === "acao" ? (it.qtd || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((x, m) => x + sinal(m) * (m.qtd || 0), 0) : 0;
+            const varDia = a && a.anterior ? (a.preco / a.anterior - 1) * 100 : null;
+            const custo = it.tipo === "acao" ? custoAcao(it, movs) : 0;
+            return (
+              <div key={it.id} style={{ ...caixaK, borderTop:`4px solid ${t.cor}`, display:"flex", flexDirection:"column", gap:4 }}>
+                <div style={{ display:"flex", gap:6, alignItems:"flex-start" }}>
+                  <b style={{ fontSize:13.5, flex:1 }}>{it.nome || it.ticker}</b>
+                  <span style={{ fontSize:9.5, fontWeight:800, borderRadius:999, padding:"2px 7px", whiteSpace:"nowrap", background:`${t.cor}22`, color:t.cor }}>
+                    {it.tipo === "cdi" ? `${String(it.pct || 0).replace(".", ",")}% CDI` : it.tipo === "acao" ? it.ticker : "parado"}</span>
+                </div>
+                <span style={{ fontSize:10.5, color:P.suave }}>{it.instituicao}{it.tipo === "acao" ? ` · ${q} cota${q !== 1 ? "s" : ""}` : ""}</span>
+                <b style={{ fontSize:20, marginTop:2 }}>{v(atual)}</b>
+                {it.tipo === "cdi" && <>
+                  <span style={{ fontSize:11.5, fontWeight:800, color:P.verde }}>{vs(mes)} este mês</span>
+                  <span style={{ fontSize:10.5, color:P.suave }}>{vs(dia)} hoje · {vs(total)} desde {dataBR(it.dataBase).slice(0, 5)}</span>
+                </>}
+                {it.tipo === "acao" && <>
+                  <span style={{ fontSize:11.5, fontWeight:800, color: total >= 0 ? P.verde : P.vermelho }}>
+                    {total >= 0 ? "▲" : "▼"} {oculto ? TRACOS : brl(Math.abs(total))} ({custo ? pctFmt(total / custo * 100) : "—"}) desde a compra</span>
+                  <span style={{ fontSize:10.5, color:P.suave }}>
+                    {a ? <>Cotação {brl(a.preco)}{varDia != null && <b style={{ color: varDia >= 0 ? P.verde : P.vermelho }}> {pctFmt(varDia)} hoje</b>}</> : "cotação indisponível"}
+                    {q ? ` · preço médio ${brl(custo / q)}` : ""}</span>
+                </>}
+                {it.tipo === "caixa" && <span style={{ fontSize:10.5, color:P.suave }}>parado na conta, esperando para investir</span>}
+                {it.meta > 0 && <div style={{ marginTop:4 }}>
+                  <div style={{ height:7, background:P.lilasClaro, borderRadius:9, overflow:"hidden" }}><div style={{ width:`${Math.min(100, atual / it.meta * 100)}%`, height:"100%", background:t.cor }}/></div>
+                  <span style={{ fontSize:10.5, fontWeight:700, color:P.roxo }}>🎯 {Math.round(atual / it.meta * 100)}% de {v(it.meta)}</span></div>}
+                <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
+                  {it.tipo !== "acao" && <button onClick={() => {
+                    const t2 = window.prompt(`Saldo de hoje em "${it.nome}" (veja no app do banco):`, num(atual)); if (t2 == null) return;
+                    onSalvar(it.id, { ...it, saldo: parseValor(t2), dataBase: hoje });
+                    setMsg(`✅ Saldo de "${it.nome}" ajustado para ${brl(parseValor(t2))}. Daqui para frente o site calcula o rendimento a partir dele.`);
+                  }} style={mini}>Ajustar saldo</button>}
+                  <button onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:it.id })} style={mini}>+ Aporte / resgate</button>
+                  <button onClick={() => setForm(it)} style={mini}>Editar</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <TabelaInvest itens={itens} onSalvar={onSalvar} onApagar={onApagar} onEditar={setForm}/>
+      )}
+
+      <div className="fin-2col">
+        <div style={caixaBloco}>
+          <Cabeca titulo="🔭 Projeção"/>
+          <div style={{ padding:"14px 16px", fontSize:13, lineHeight:1.7 }}>
+            {merc.cdi.ultima ? <>
+              <div>Se o CDI continuar como hoje (<b>{cdiAno.toFixed(2).replace(".", ",")}% ao ano</b>), em <b>12 meses</b> você teria cerca de</div>
+              <div style={{ fontSize:24, fontWeight:900, color:P.roxo }}>{v(proj12)} <span style={{ fontSize:13, color:P.verde }}>{vs(proj12 - patrimonio)}</span></div>
+              <div style={{ fontSize:12, color:P.suave }}>As caixinhas rendem cerca de <b>{v(rendMensalCdi)}</b> por mês. Sem contar novos aportes, a variação das ações e o imposto de renda.</div>
+            </> : <span style={{ color:P.suave }}>Aguardando o CDI do Banco Central…</span>}
+          </div>
+        </div>
+        <div style={caixaBloco}>
+          <Cabeca titulo="📅 Mês a mês"/>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ borderCollapse:"collapse", width:"100%", fontFamily:FONT, fontSize:12 }}>
+              <thead><tr>{["Mês", "Patrimônio", "Aportes", "Rendeu"].map((h, i) => <th key={h} style={{ background:P.lilas, padding:"6px 10px", textAlign: i ? "right" : "left", fontSize:11 }}>{h}</th>)}</tr></thead>
+              <tbody>{[...serie].reverse().map(s => (
+                <tr key={s.mes}><td style={{ padding:"6px 10px", borderBottom:`1px solid ${P.linha}`, fontWeight:700 }}>{MESES[+s.mes.slice(5) - 1]} {s.mes.slice(0, 4)}{s.mes === mesAtual ? " (até hoje)" : ""}</td>
+                  <td style={{ padding:"6px 10px", borderBottom:`1px solid ${P.linha}`, textAlign:"right" }}>{v(s.total)}</td>
+                  <td style={{ padding:"6px 10px", borderBottom:`1px solid ${P.linha}`, textAlign:"right", color:P.suave }}>{s.aportes ? v(s.aportes) : "—"}</td>
+                  <td style={{ padding:"6px 10px", borderBottom:`1px solid ${P.linha}`, textAlign:"right", fontWeight:800, color: s.rend >= 0 ? P.verde : P.vermelho }}>{vs(s.rend)}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div style={caixaBloco}>
+        <Cabeca titulo="💸 Aportes e resgates" sub={`${movs.length} movimentaç${movs.length === 1 ? "ão" : "ões"}`}>
+          <HeadBtn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Adicionar</HeadBtn>
+        </Cabeca>
+        {!movs.length ? <div style={{ padding:"16px", fontSize:12, color:P.suave, textAlign:"center" }}>Quando você colocar ou tirar dinheiro de algum investimento, lance aqui. Assim o rendimento fica certo.</div> : (
+          <div>{movs.slice(0, 50).map(m => { const it = itens.find(i => i.id === m.inv); return (
+            <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5 }}>
+              <span style={{ color:P.suave, width:72 }}>{dataBR(m.data)}</span>
+              <b style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it?.nome || it?.ticker || "(removido)"}</b>
+              <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background: m.tipo === "resgate" ? "#FBD9DB" : "#DCE8FB", color: m.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>
+                {m.tipo === "resgate" ? (it?.tipo === "acao" ? "Venda" : "Resgate") : (it?.tipo === "acao" ? "Compra" : "Aporte")}</span>
+              {m.qtd ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : null}
+              <b style={{ width:110, textAlign:"right" }}>{v(m.valor || 0)}</b>
+              <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+            </div>); })}</div>
+        )}
+      </div>
+
+      <div style={{ fontSize:10.5, color:P.suave, lineHeight:1.6 }}>
+        Os valores das caixinhas são uma estimativa pelo CDI oficial (antes do imposto de renda e do IOF); confira com o app do banco e use “Ajustar saldo” quando quiser.
+        Cotações com cerca de 15 minutos de atraso. Isto não é recomendação de investimento.</div>
+
+      {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
+        onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }}/>}
+      {formMov && <FormMov inicial={formMov} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
+    </div>
+  );
+}
+const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
+const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
+  borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
+
+function EvolucaoInvest({ serie, oculto }) {
+  const W = 560, H = 180, pl = 50, pr = 16, pb = 24, pt = 18;
+  const vals = serie.map(s => s.total), mx = Math.max(1, ...vals), mn = Math.min(...vals);
+  const lo = serie.length > 1 ? Math.max(0, mn - (mx - mn) * .25 - 1) : 0, hi = mx + (mx - lo) * .12 + 1;
+  const x = i => serie.length > 1 ? pl + i * (W - pl - pr) / (serie.length - 1) : (pl + W - pr) / 2;
+  const y = val => H - pb - (val - lo) / (hi - lo) * (H - pb - pt);
+  const d = serie.map((s, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(s.total).toFixed(1)}`).join(" ");
+  const passos = 4, grade = Array.from({ length: passos + 1 }, (_, i) => lo + (hi - lo) * i / passos);
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="📈 Evolução do patrimônio" sub={serie.length > 1 ? `últimos ${serie.length} meses` : "o gráfico vai crescendo mês a mês"}/>
+      <div style={{ padding:"8px 12px" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Evolução do patrimônio">
+          <defs><linearGradient id="gInv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7B4FD6" stopOpacity=".28"/><stop offset="1" stopColor="#7B4FD6" stopOpacity="0"/></linearGradient></defs>
+          {grade.map((g, i) => <g key={i}><line x1={pl} x2={W - pr} y1={y(g)} y2={y(g)} stroke="#ECE8F5"/>
+            <text x={pl - 6} y={y(g) + 3} textAnchor="end" fontSize="9.5" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{oculto ? "‑‑‑" : g >= 1000 ? `${(g / 1000).toFixed(1).replace(".", ",")} mil` : Math.round(g)}</text></g>)}
+          {serie.length > 1 && <path d={`${d} L${x(serie.length - 1)},${H - pb} L${x(0)},${H - pb} Z`} fill="url(#gInv)"/>}
+          {serie.length > 1 && <path d={d} fill="none" stroke="#4C27A0" strokeWidth="2.5"/>}
+          {serie.map((s, i) => <g key={s.mes}>
+            <circle cx={x(i)} cy={y(s.total)} r={i === serie.length - 1 ? 5 : 3.5} fill="#4C27A0" stroke="#fff" strokeWidth="2"><title>{`${s.mes}: ${brl(s.total)}`}</title></circle>
+            <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="10.5" fontWeight={i === serie.length - 1 ? 800 : 600} fill={i === serie.length - 1 ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{MESES[+s.mes.slice(5) - 1].slice(0, 3)}</text>
+          </g>)}
+          {serie.length > 0 && !oculto && <text x={Math.min(x(serie.length - 1), W - pr - 4)} y={y(serie[serie.length - 1].total) - 10} textAnchor={serie.length > 1 ? "end" : "middle"} fontSize="11" fontWeight="800" fill={P.tinta} fontFamily="Montserrat, sans-serif">{brl(serie[serie.length - 1].total)}</text>}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function TabelaInvest({ itens, onSalvar, onApagar, onEditar }) {
+  const th = { background:P.lilas, fontSize:10.5, fontWeight:700, padding:"5px 6px", textAlign:"left", whiteSpace:"nowrap" };
+  const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0 };
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="☰ Editar investimentos"/>
+      <div style={{ overflowX:"auto" }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:820, fontFamily:FONT }}>
+          <thead><tr>{["Nome", "Banco / corretora", "Tipo", "% CDI / Ação", "Saldo / Custo total", "Cotas", "Desde", "Meta", ""].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>{itens.map(it => { const set = p => onSalvar(it.id, { ...it, ...p }); return (
+            <tr key={it.id} className="fin-row">
+              <td style={td}><TextCell value={it.nome || ""} onChange={x => set({ nome:x })} bold/></td>
+              <td style={td}><TextCell value={it.instituicao || ""} onChange={x => set({ instituicao:x })}/></td>
+              <td style={td}><select className="fin-cell" value={it.tipo} onChange={e => set({ tipo:e.target.value })} style={{ ...cellBase, cursor:"pointer" }}>
+                {Object.entries(TIPOS_INV).map(([k, t]) => <option key={k} value={k}>{t.nome}</option>)}</select></td>
+              <td style={td}>{it.tipo === "cdi" ? <TextCell value={String(it.pct ?? "")} align="right" onChange={x => set({ pct: parseValor(x) })}/>
+                : it.tipo === "acao" ? <TextCell value={it.ticker || ""} onChange={x => set({ ticker:x.toUpperCase().trim() })}/> : <span style={{ ...cellBase, display:"block", color:P.suave }}>—</span>}</td>
+              <td style={td}><MoneyCell value={it.tipo === "acao" ? it.custo : it.saldo} onChange={x => set(it.tipo === "acao" ? { custo:x } : { saldo:x })}/></td>
+              <td style={td}>{it.tipo === "acao" ? <TextCell value={String(it.qtd ?? "")} align="right" onChange={x => set({ qtd: parseInt(x) || 0 })}/> : <span style={{ ...cellBase, display:"block", color:P.suave }}>—</span>}</td>
+              <td style={td}><input type="date" className="fin-cell" value={it.dataBase || ""} onChange={e => set({ dataBase:e.target.value })} style={cellBase}/></td>
+              <td style={td}><MoneyCell value={it.meta || 0} onChange={x => set({ meta:x })}/></td>
+              <td style={{ ...td, textAlign:"center" }}><button onClick={() => window.confirm(`Tirar "${it.nome || it.ticker}"?`) && onApagar(it.id)} style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button></td>
+            </tr>); })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Janelinha para criar/editar um investimento
+function Janela({ titulo, children, onFechar }) {
+  return (
+    <div onClick={onFechar} style={{ position:"fixed", inset:0, background:"rgba(42,33,64,.35)", zIndex:40, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label={titulo} style={{ background:P.papel, borderRadius:16, width:"min(460px, 100%)", maxHeight:"90vh", overflowY:"auto",
+        boxShadow:"0 18px 40px rgba(59,28,126,.28)", fontFamily:FONT, padding:"16px 18px" }}>
+        <div style={{ display:"flex", alignItems:"center", marginBottom:12 }}><b style={{ fontSize:15, color:P.roxo }}>{titulo}</b>
+          <button onClick={onFechar} style={{ marginLeft:"auto", border:"none", background:"none", color:P.suave, fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>✕ fechar</button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+const campoSt = { width:"100%", boxSizing:"border-box", border:`1px solid ${P.lilas}`, borderRadius:9, padding:"9px 10px", fontFamily:FONT, fontSize:14, color:P.tinta, background:P.papel };
+function Campo({ rotulo, children, dica }) {
+  return <label style={{ display:"block", marginBottom:10 }}><span style={{ display:"block", fontSize:11, fontWeight:800, color:P.suave, marginBottom:4, letterSpacing:".04em" }}>{rotulo}</span>
+    {children}{dica && <span style={{ display:"block", fontSize:10.5, color:P.suave, marginTop:3 }}>{dica}</span>}</label>;
+}
+function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
+  const [f, setF] = useState({ nome:"", instituicao:"", pct:100, qtd:"", ...inicial, saldoTxt: inicial.tipo === "acao" ? (inicial.custo ? num(inicial.custo) : "") : (inicial.saldo ? num(inicial.saldo) : "") });
+  const set = p => setF(x => ({ ...x, ...p }));
+  const a = f.ticker && merc.acoes[f.ticker];
+  const precoData = a ? precoEm(a, f.dataBase || hojeStr()) : null;
+  const sugestaoQtd = precoData && f.tipo === "acao" && parseValor(f.saldoTxt) ? Math.max(1, Math.round(parseValor(f.saldoTxt) / precoData)) : null;
+  function salvar() {
+    const valor = parseValor(f.saldoTxt);
+    const x = { nome: f.nome.trim() || (f.tipo === "acao" ? f.ticker : TIPOS_INV[f.tipo].nome), instituicao: f.instituicao.trim(), tipo: f.tipo,
+      dataBase: f.dataBase || hojeStr(), meta: Number(f.meta) || 0, ord: f.ord || Date.now() };
+    if (f.tipo === "cdi") Object.assign(x, { pct: Number(String(f.pct).replace(",", ".")) || 100, saldo: valor });
+    if (f.tipo === "acao") Object.assign(x, { ticker: (f.ticker || "").toUpperCase().trim(), custo: valor, qtd: parseInt(f.qtd) || sugestaoQtd || 0 });
+    if (f.tipo === "caixa") Object.assign(x, { saldo: valor });
+    onSalvar(f.id || uid(), x);
+  }
+  return (
+    <Janela titulo={f.id ? "Editar investimento" : "Novo investimento"} onFechar={onFechar}>
+      <div style={{ display:"flex", gap:6, marginBottom:12, flexWrap:"wrap" }}>
+        {Object.entries(TIPOS_INV).map(([k, t]) => <button key={k} onClick={() => set({ tipo:k })} style={{ border:"none", borderRadius:999, padding:"6px 12px", fontFamily:FONT, fontSize:12,
+          fontWeight:700, cursor:"pointer", background: f.tipo === k ? t.cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t.nome}</button>)}
+      </div>
+      {f.tipo === "acao" && <Campo rotulo="CÓDIGO DA AÇÃO" dica="Como aparece na corretora, ex.: PETR4, BBAS3">
+        <input value={f.ticker || ""} onChange={e => set({ ticker:e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="PETR4" style={campoSt}/></Campo>}
+      <Campo rotulo="NOME"><input value={f.nome} onChange={e => set({ nome:e.target.value })} placeholder={f.tipo === "acao" ? "Petrobras" : f.tipo === "cdi" ? "Caixinha 120%" : "Saldo XP"} style={campoSt}/></Campo>
+      <Campo rotulo="BANCO / CORRETORA"><input value={f.instituicao} onChange={e => set({ instituicao:e.target.value })} placeholder="Nubank, Mercado Pago, XP…" style={campoSt}/></Campo>
+      {f.tipo === "cdi" && <Campo rotulo="RENDE QUANTOS % DO CDI?"><input value={f.pct} inputMode="decimal" onChange={e => set({ pct:e.target.value })} style={campoSt}/></Campo>}
+      <Campo rotulo={f.tipo === "acao" ? "QUANTO VOCÊ PAGOU NO TOTAL (R$)" : "SALDO DE HOJE (R$)"} dica={f.tipo === "cdi" ? "Veja no app do banco. A partir daqui o site calcula o rendimento." : null}>
+        <input value={f.saldoTxt} inputMode="decimal" onChange={e => set({ saldoTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
+      {f.tipo === "acao" && <Campo rotulo="QUANTAS COTAS" dica={sugestaoQtd ? `Pela cotação de ${dataBR(f.dataBase || hojeStr())} (${brl(precoData)}), dá cerca de ${sugestaoQtd} cota${sugestaoQtd > 1 ? "s" : ""}.` : null}>
+        <input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} placeholder={sugestaoQtd ? String(sugestaoQtd) : "10"} style={campoSt}/></Campo>}
+      <Campo rotulo={f.tipo === "acao" ? "DATA DA COMPRA" : "DESDE (DATA DO SALDO)"}><input type="date" value={f.dataBase || ""} onChange={e => set({ dataBase:e.target.value })} style={campoSt}/></Campo>
+      <Campo rotulo="META (OPCIONAL, R$)"><input value={f.meta ? num(f.meta) : ""} inputMode="decimal" onChange={e => set({ meta: parseValor(e.target.value) })} placeholder="Ex.: 30.000,00" style={campoSt}/></Campo>
+      <div style={{ display:"flex", gap:8, marginTop:6 }}>
+        {onApagar && <Btn onClick={() => window.confirm("Tirar este investimento?") && onApagar()} style={{ color:P.vermelho, borderColor:"#F5C6C6" }}>Tirar</Btn>}
+        <Btn primary onClick={salvar} style={{ marginLeft:"auto" }} disabled={!parseValor(f.saldoTxt) || (f.tipo === "acao" && !f.ticker)}>Salvar</Btn>
+      </div>
+    </Janela>
+  );
+}
+function FormMov({ inicial, itens, onSalvar, onFechar }) {
+  const [f, setF] = useState({ valorTxt:"", qtd:"", info:"", ...inicial });
+  const set = p => setF(x => ({ ...x, ...p }));
+  const it = itens.find(i => i.id === f.inv);
+  const acao = it?.tipo === "acao";
+  return (
+    <Janela titulo="Aporte ou resgate" onFechar={onFechar}>
+      <Campo rotulo="INVESTIMENTO"><select value={f.inv} onChange={e => set({ inv:e.target.value })} style={campoSt}>
+        {itens.map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>
+      <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+        {[["aporte", acao ? "Compra" : "Aporte (colocou)"], ["resgate", acao ? "Venda" : "Resgate (tirou)"]].map(([k, t]) => (
+          <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px", fontFamily:FONT, fontSize:12.5, fontWeight:700, cursor:"pointer",
+            background: f.tipo === k ? (k === "aporte" ? "#1F5FBF" : P.vermelho) : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t}</button>))}
+      </div>
+      <Campo rotulo="VALOR (R$)"><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
+      {acao && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
+      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(f.valorTxt) || !f.inv}
+        onClick={() => onSalvar(uid(), { kind:"mov", inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt), qtd: acao ? parseInt(f.qtd) || 0 : 0, data:f.data || hojeStr() })}>Salvar</Btn></div>
+    </Janela>
+  );
+}
+
+
 // ── Clientes (aba Geral da Empresa): quem paga e quanto, como na sua planilha ──
 function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
   const lista = Object.entries(clientes).filter(([id, c]) => id !== "_meta" && !c.apagado).map(([id, c]) => ({ id, ...c }))
@@ -1568,6 +2026,11 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem("aigo-fin-ocultar", ocultar ? "1" : "0"); } catch {} }, [ocultar]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
+  // 💰 investimentos — sincronizam pela nuvem
+  const [invest, setInvest] = useState(() => lerJSON("aigo-fin-invest", {}));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-invest", JSON.stringify(invest)); } catch {} }, [invest]);
+  const [investir, setInvestir] = useState(() => { try { return localStorage.getItem("aigo-fin-investir") === "1"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-investir", investir ? "1" : "0"); } catch {} }, [investir]);
   // 👥 clientes (aba Geral) — sincronizam pela nuvem
   const [clientes, setClientes] = useState(() => lerJSON("aigo-fin-clientes", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-clientes", JSON.stringify(clientes)); } catch {} }, [clientes]);
@@ -1614,8 +2077,8 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem(APAG_KEY, JSON.stringify(apagados)); } catch {} }, [apagados]);
 
   // ── Nuvem: manda o que este aparelho tem e recebe tudo já juntado com os outros aparelhos ──
-  const atual = useRef({ rows, apagados, cores, clientes });
-  atual.current = { rows, apagados, cores, clientes };
+  const atual = useRef({ rows, apagados, cores, clientes, invest });
+  atual.current = { rows, apagados, cores, clientes, invest };
   const sync = useRef({ rodando:false, pendente:false });
   async function sincronizar() {
     if (sync.current.rodando) { sync.current.pendente = true; return; }
@@ -1625,13 +2088,13 @@ function FinanceiroApp({ senha, sair }) {
       const enviado = atual.current;
       const resp = await fetch("/api/fin-dados", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-fin-senha": senha },
-        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados, cores: enviado.cores, clientes: enviado.clientes }),
+        body: JSON.stringify({ rows: enviado.rows, apagados: enviado.apagados, cores: enviado.cores, clientes: enviado.clientes, invest: enviado.invest }),
       });
       if (resp.status === 401) { sair(); return; }
       const out = await resp.json().catch(() => ({}));
       if (resp.status === 503 && out.semNuvem) { setNuvem({ estado:"sem", quando:null }); return; }
       if (!resp.ok) throw new Error(out.error || `HTTP ${resp.status}`);
-      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados || atual.current.cores !== enviado.cores || atual.current.clientes !== enviado.clientes) {
+      if (atual.current.rows !== enviado.rows || atual.current.apagados !== enviado.apagados || atual.current.cores !== enviado.cores || atual.current.clientes !== enviado.clientes || atual.current.invest !== enviado.invest) {
         sync.current.pendente = true;          // mudou algo enquanto enviava: manda de novo antes de aplicar
       } else {
         const daNuvem = (out.rows || []).map(normalize);
@@ -1639,6 +2102,7 @@ function FinanceiroApp({ senha, sair }) {
         if (!igual(out.apagados || [], enviado.apagados)) setApagados(out.apagados || []);
         if (out.cores && typeof out.cores === "object" && JSON.stringify(out.cores) !== JSON.stringify(enviado.cores)) setCores(out.cores);
         if (out.clientes && typeof out.clientes === "object" && JSON.stringify(out.clientes) !== JSON.stringify(enviado.clientes)) setClientes(out.clientes);
+        if (out.invest && typeof out.invest === "object" && JSON.stringify(out.invest) !== JSON.stringify(enviado.invest)) setInvest(out.invest);
       }
       setNuvem({ estado:"ok", quando:new Date() });
     } catch {
@@ -1649,7 +2113,7 @@ function FinanceiroApp({ senha, sair }) {
     }
   }
   // depois de cada alteração (espera 1 segundo sem mexer)
-  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados, cores, clientes]);
+  useEffect(() => { const t = setTimeout(sincronizar, 1000); return () => clearTimeout(t); }, [rows, apagados, cores, clientes, invest]);
   // a cada 15 segundos e ao voltar para a aba, para receber o que foi lançado no outro aparelho
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === "visible") sincronizar(); }, 15000);
@@ -1923,13 +2387,17 @@ function FinanceiroApp({ senha, sair }) {
           <div className="fin-nome" style={{ fontWeight:700, fontSize:15 }}>Financeiro</div>
           <div role="tablist" aria-label="Empresa ou pessoal" style={{ display:"inline-flex", background:P.lilasClaro, borderRadius:100, padding:3 }}>
             {Object.entries(ESPACOS).map(([k, e]) => (
-              <button key={k} role="tab" aria-selected={espaco === k} onClick={() => { setEspaco(k); setSel(new Set()); }}
+              <button key={k} role="tab" aria-selected={!investir && espaco === k} onClick={() => { setEspaco(k); setInvestir(false); setSel(new Set()); }}
                 style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12, padding:"5px 13px", borderRadius:100, whiteSpace:"nowrap",
-                  background: espaco === k ? P.papel : "transparent", color: espaco === k ? P.roxo : P.suave, fontWeight: espaco === k ? 800 : 600,
-                  boxShadow: espaco === k ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>{e.icone} {e.nome}</button>
+                  background: !investir && espaco === k ? P.papel : "transparent", color: !investir && espaco === k ? P.roxo : P.suave, fontWeight: !investir && espaco === k ? 800 : 600,
+                  boxShadow: !investir && espaco === k ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>{e.icone}<span className="fin-nome"> {e.nome}</span></button>
             ))}
+            <button role="tab" aria-selected={investir} onClick={() => { setInvestir(true); setSel(new Set()); }}
+              style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12, padding:"5px 13px", borderRadius:100, whiteSpace:"nowrap",
+                background: investir ? P.papel : "transparent", color: investir ? P.roxo : P.suave, fontWeight: investir ? 800 : 600,
+                boxShadow: investir ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>💰<span className="fin-nome"> Investimentos</span></button>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:4, marginLeft:4 }}>
+          <div style={{ display: investir ? "none" : "flex", alignItems:"center", gap:4, marginLeft:4 }}>
             <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>‹</button>
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
@@ -1957,13 +2425,24 @@ function FinanceiroApp({ senha, sair }) {
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
         {/* abas como no Google Planilhas */}
-        <div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
+        {!investir && <div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
           <button onClick={() => setAba("geral")} style={tab(aba === "geral")}>Geral</button>
           {MESES.map((m, i) => <button key={m} onClick={() => setAba(i)} style={tab(aba === i)}>{m}</button>)}
-        </div>
+        </div>}
       </div>
 
       <div style={{ padding:"18px 16px 60px", maxWidth:1380, margin:"0 auto" }}>
+        {investir ? <>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
+            <div style={{ background:"#0E6B3B", color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16, letterSpacing:".1em", textTransform:"uppercase" }}>
+              💰 Investimentos · {new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" })}</div>
+          </div>
+          {msg && <div style={{ background:"#EEF8F0", border:"1px solid #CDEBD3", color:P.verde, borderRadius:12, padding:"10px 14px", fontSize:12.5, marginBottom:12,
+            display:"flex", gap:10 }}><span style={{ flex:1 }}>{msg}</span><button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave }}>✕</button></div>}
+          <Investimentos invest={invest} setMsg={setMsg}
+            onSalvar={(id, x) => setInvest(cs => ({ ...cs, [id]: { ...x, upd:Date.now() } }))}
+            onApagar={id => setInvest(cs => ({ ...cs, [id]: { ...cs[id], apagado:true, upd:Date.now() } }))}/>
+        </> : <>
         {/* faixa do mês + ações */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
           <div style={{ background: pessoal ? "#5B2BA6" : P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
@@ -2180,6 +2659,7 @@ function FinanceiroApp({ senha, sair }) {
           <input ref={backupRef} type="file" accept="application/json" hidden
             onChange={e => { e.target.files[0] && importBackup(e.target.files[0]); e.target.value = ""; }}/>
         </div>
+        </>}
       </div>
 
       {selecionados.length > 0 && (

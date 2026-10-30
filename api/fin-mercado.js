@@ -36,7 +36,10 @@ async function acaoYahoo(t, desde) {
   const ts = r.timestamp || [], cl = r.indicators?.quote?.[0]?.close || [];
   const hist = ts.map((s, i) => [new Date((s - 3 * 3600) * 1000).toISOString().slice(0, 10), cl[i]]).filter(([, c]) => c != null)
     .map(([d, c]) => [d, Math.round(c * 100) / 100]);
-  return { preco: r.meta.regularMarketPrice, anterior: r.meta.chartPreviousClose ?? null,
+  // fechamento do pregão anterior (o último dia do histórico pode ser hoje)
+  const hojeBR = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const ant = hist.length ? (hist[hist.length - 1][0] === hojeBR ? hist[hist.length - 2]?.[1] : hist[hist.length - 1][1]) : null;
+  return { preco: r.meta.regularMarketPrice, anterior: ant ?? null,
     hora: r.meta.regularMarketTime ? new Date(r.meta.regularMarketTime * 1000).toISOString() : null, hist, fonte: "Yahoo Finance" };
 }
 async function acaoBrapi(t, desde) {

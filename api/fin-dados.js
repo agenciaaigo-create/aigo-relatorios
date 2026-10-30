@@ -8,7 +8,24 @@ import { juntar } from "./_fin-merge.js";
 // Aceita o prefixo escolhido ao conectar o banco na Vercel (KV, STORAGE ou o padrão do Upstash)
 const URL_ = process.env.KV_REST_API_URL || process.env.STORAGE_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.STORAGE_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", CLIENTES = "fin:clientes", ano = a => `fin:ano:${a}`;
+const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", CLIENTES = "fin:clientes", INVEST = "fin:invest", ano = a => `fin:ano:${a}`;
+
+// Investimentos: { id: {...campos simples, upd, apagado} } (investimentos, movimentações e "_meta"). Vale a versão mais recente.
+const CAMPOS_TXT = ["nome", "instituicao", "tipo", "ticker", "dataBase", "inv", "data", "info", "kind", "mov"];
+const CAMPOS_NUM = ["pct", "qtd", "custo", "saldo", "meta", "ord", "upd", "valor"];
+function juntarInvest(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [id, v] of Object.entries(b || {})) {
+    if (!v || typeof v !== "object" || typeof id !== "string" || id.length > 80) continue;
+    const limpo = {};
+    CAMPOS_TXT.forEach(k => { if (typeof v[k] === "string") limpo[k] = v[k].slice(0, 120); });
+    CAMPOS_NUM.forEach(k => { if (v[k] != null && isFinite(Number(v[k]))) limpo[k] = Number(v[k]); });
+    if (v.apagado) limpo.apagado = true;
+    limpo.upd = Number(v.upd) || 0;
+    if (!out[id] || limpo.upd > (Number(out[id].upd) || 0)) out[id] = limpo;
+  }
+  return out;
+}
 
 // Cores escolhidas para as categorias: { "empresa|Investimentos": { cor:"#c2185b", upd:123 } }
 // Por categoria, fica a escolha mais recente (cor null = voltou à cor original).
@@ -53,10 +70,10 @@ function juntarClientes(a = {}, b = {}) {
 }
 
 async function lerTudo() {
-  const [anosTxt, apagTxt, coresTxt, clientesTxt] = await redis([["GET", ANOS], ["GET", APAGADOS], ["GET", CORES], ["GET", CLIENTES]]);
+  const [anosTxt, apagTxt, coresTxt, clientesTxt, investTxt] = await redis([["GET", ANOS], ["GET", APAGADOS], ["GET", CORES], ["GET", CLIENTES], ["GET", INVEST]]);
   const anos = ler(anosTxt) || [];
   const partes = anos.length ? await redis(anos.map(a => ["GET", ano(a)])) : [];
-  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [], cores: ler(coresTxt) || {}, clientes: ler(clientesTxt) || {} };
+  return { rows: partes.flatMap(p => ler(p) || []), apagados: ler(apagTxt) || [], cores: ler(coresTxt) || {}, clientes: ler(clientesTxt) || {}, invest: ler(investTxt) || {} };
 }
 
 async function gravar({ rows, apagados }) {
@@ -86,14 +103,16 @@ export default async function handler(req, res) {
     const corpo = await lerCorpo(req);
     const chegou = { rows: Array.isArray(corpo.rows) ? corpo.rows : [], apagados: Array.isArray(corpo.apagados) ? corpo.apagados : [] };
     const nuvem = await lerTudo();
-    const { cores: coresNuvem, clientes: clientesNuvem, ...dadosNuvem } = nuvem;
+    const { cores: coresNuvem, clientes: clientesNuvem, invest: investNuvem, ...dadosNuvem } = nuvem;
     const junto = juntar(dadosNuvem, chegou);
     if (JSON.stringify(junto) !== JSON.stringify(dadosNuvem)) await gravar(junto);
     const cores = juntarCores(coresNuvem, corpo.cores && typeof corpo.cores === "object" ? corpo.cores : {});
     if (JSON.stringify(cores) !== JSON.stringify(coresNuvem)) await redis([["SET", CORES, JSON.stringify(cores)]]);
     const clientes = juntarClientes(clientesNuvem, corpo.clientes && typeof corpo.clientes === "object" ? corpo.clientes : {});
     if (JSON.stringify(clientes) !== JSON.stringify(clientesNuvem)) await redis([["SET", CLIENTES, JSON.stringify(clientes)]]);
-    return res.status(200).json({ ...junto, cores, clientes, quando: Date.now() });
+    const invest = juntarInvest(investNuvem, corpo.invest && typeof corpo.invest === "object" ? corpo.invest : {});
+    if (JSON.stringify(invest) !== JSON.stringify(investNuvem)) await redis([["SET", INVEST, JSON.stringify(invest)]]);
+    return res.status(200).json({ ...junto, cores, clientes, invest, quando: Date.now() });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao falar com a nuvem: " + (e.message || String(e)) });
   }
