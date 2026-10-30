@@ -1922,6 +1922,7 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
         <HeadBtn onClick={copiar} disabled={!lista.length}>📋 Copiar tudo</HeadBtn>
       </Cabeca>
       {vista === "cartoes" ? <CartoesClientes lista={lista} porValor={porValor} total={total} meta={meta} corDe={corDe}
+        onPago={(c, sim) => onSalvar(c.id, { ...c, pago: sim ? mesHoje() : "" })}
         onMeta={() => { setVista("tabela"); setEditMeta(true); }} onEditar={() => setVista("tabela")} onNovo={() => { novo(); setVista("tabela"); }}/> : <>
       <div style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
         <div style={{ fontSize:12, fontWeight:700, color:P.roxo, whiteSpace:"nowrap" }}>
@@ -1992,8 +1993,13 @@ function tempoDeCasa(inicio) {
 }
 const iniciais = n => (n || "?").trim().split(/\s+/).filter(w => w.length > 1 || /\d/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
 
-function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar, onNovo }) {
+const mesHoje = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar, onNovo, onPago }) {
   const oculto = useContext(OcultarCtx);
+  // ✓ Pago no mês: guarda o mês em que foi marcado; quando vira o mês, volta sozinho para "não pago"
+  const mes = mesHoje(), nomeMes = MESES[+mes.slice(5) - 1].toLowerCase();
+  const pagou = c => c.pago === mes;
+  const pagos = lista.filter(pagou), recebido = pagos.reduce((t, c) => t + (c.valor || 0), 0);
   const R = 52, C = 2 * Math.PI * R, pct = meta ? Math.min(1, total / meta) : 0;
   const v = x => oculto ? TRACOS : brl(x);
   const top = porValor.slice(0, 8), resto = porValor.slice(8).reduce((t, c) => t + c.valor, 0);
@@ -2030,12 +2036,29 @@ function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar
           </>}
         </div>
       </div>
+      {lista.length > 0 && <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:"#F3FBF5", border:"1px solid #CDEBD3",
+        borderRadius:12, padding:"10px 14px", marginBottom:12 }}>
+        <div style={{ fontSize:12.5 }}><b style={{ color:P.verde }}>✓ {pagos.length} de {lista.length}</b> pagaram em {nomeMes}
+          <span style={{ color:P.suave }}> · {v(recebido)} de {v(total)}</span></div>
+        <div style={{ flex:"1 1 160px", height:9, background:"#DDEFE2", borderRadius:999, overflow:"hidden" }}>
+          <div style={{ width:`${total ? recebido / total * 100 : 0}%`, height:"100%", background:"#1E9E4A", borderRadius:999, transition:"width .3s" }}/></div>
+        <button onClick={() => lista.filter(c => !pagou(c)).forEach(c => onPago(c, true))} disabled={pagos.length === lista.length}
+          style={{ ...mini, borderColor:"#B9E3C6", color:P.verde, opacity: pagos.length === lista.length ? .45 : 1 }}>✓ Marcar todos</button>
+        <button onClick={() => window.confirm(`Desmarcar todos os pagamentos de ${nomeMes}?`) && pagos.forEach(c => onPago(c, false))} disabled={!pagos.length}
+          style={{ ...mini, opacity: pagos.length ? 1 : .45 }}>↺ Desmarcar todos</button>
+        <span style={{ width:"100%", fontSize:10.5, color:P.suave }}>Clique no cartão para marcar/desmarcar quem pagou. No mês seguinte todos voltam para “não pago” sozinhos. Para editar, use o ✎.</span>
+      </div>}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:10 }}>
         {[...lista].sort((a, b) => (b.valor || 0) - (a.valor || 0)).map(c => {
-          const cor = corDe(c.id), tempo = tempoDeCasa(c.inicio);
+          const cor = corDe(c.id), tempo = tempoDeCasa(c.inicio), ok = pagou(c);
           return (
-            <button key={c.id} onClick={onEditar} title="Clique para editar" style={{ textAlign:"left", border:`1px solid ${P.linha}`, borderRadius:12, background:P.papel,
-              padding:"11px 12px", cursor:"pointer", fontFamily:FONT, color:P.tinta, display:"flex", flexDirection:"column", gap:6, borderTop:`4px solid ${cor}` }}>
+            <div key={c.id} role="button" tabIndex={0} aria-pressed={ok} onClick={() => onPago(c, !ok)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPago(c, !ok); } }}
+              title={ok ? `Pagou ${nomeMes} — clique para desmarcar` : `Clique quando ${c.nome || "o cliente"} pagar ${nomeMes}`}
+              style={{ position:"relative", textAlign:"left", border:`1px solid ${ok ? "#9ED8AE" : P.linha}`, borderRadius:12, background: ok ? "#EAF7EE" : P.papel,
+              padding:"11px 22px 11px 12px", cursor:"pointer", fontFamily:FONT, color:P.tinta, display:"flex", flexDirection:"column", gap:6,
+              borderTop:`4px solid ${ok ? "#1E9E4A" : cor}`, boxShadow: ok ? "0 0 0 2px #1E9E4A22" : "none", transition:"background .2s" }}>
+              <button onClick={e => { e.stopPropagation(); onEditar(); }} title="Editar" aria-label={`Editar ${c.nome}`}
+                style={{ position:"absolute", top:6, right:6, border:"none", background:"none", color:P.suave, cursor:"pointer", fontSize:12, padding:2 }}>✎</button>
               <div style={{ display:"flex", alignItems:"center", gap:9, minWidth:0 }}>
                 <span style={{ width:34, height:34, borderRadius:"50%", background:cor, color:textoSobre(cor), display:"flex", alignItems:"center", justifyContent:"center",
                   fontSize:12.5, fontWeight:800, flex:"0 0 auto" }}>{iniciais(c.nome)}</span>
@@ -2052,7 +2075,9 @@ function CartoesClientes({ lista, porValor, total, meta, corDe, onMeta, onEditar
                 {tempo && <div>🗓 {/^\d/.test(tempo) ? `cliente há ${tempo}` : tempo}</div>}
                 {c.info && <div style={{ color:P.roxo, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {c.info}</div>}
               </div>}
-            </button>
+              <span style={{ alignSelf:"flex-start", borderRadius:999, padding:"2px 9px", fontSize:10.5, fontWeight:800,
+                background: ok ? "#1E9E4A" : "#F1EFF6", color: ok ? "#fff" : P.suave }}>{ok ? `✓ Pagou ${nomeMes}` : "A pagar"}</span>
+            </div>
           );
         })}
         <button onClick={onNovo} style={{ border:`2px dashed ${P.lilas}`, borderRadius:12, background:"transparent", color:P.roxo, fontFamily:FONT,
