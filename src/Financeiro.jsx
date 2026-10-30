@@ -1301,14 +1301,17 @@ function useMercado(tickers, desde) {
   return m;
 }
 
-function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
+function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) {
   const oculto = useContext(OcultarCtx);
   const v = x => oculto ? TRACOS : brl(x);
   const vs = x => oculto ? TRACOS : `${x >= 0 ? "+" : "−"}${brl(Math.abs(x))}`;
-  const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov").map(([id, x]) => ({ id, ...x }))
+  const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov" && x.kind !== "plano").map(([id, x]) => ({ id, ...x }))
     .sort((a, b) => (a.ord || 0) - (b.ord || 0));
   const movs = Object.entries(invest).filter(([, x]) => x.kind === "mov" && !x.apagado).map(([id, x]) => ({ id, ...x }))
     .sort((a, b) => b.data.localeCompare(a.data));
+  // planejados (aportes/resgates que você pretende fazer): contam na previsão até virarem "feito"
+  const planos = Object.entries(invest).filter(([, x]) => x.kind === "plano" && !x.apagado).map(([id, x]) => ({ id, ...x }))
+    .sort((a, b) => a.data.localeCompare(b.data));
   const meta = invest._meta?.valor || 0;
   const tickers = [...new Set(itens.filter(i => i.tipo === "acao" && i.ticker).map(i => i.ticker))].sort();
   const hoje = hojeStr(), mesAtual = hoje.slice(0, 7);
@@ -1319,6 +1322,13 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
   const [porBanco, setPorBanco] = useState(false);
   const [form, setForm] = useState(null);      // investimento sendo criado/editado
   const [formMov, setFormMov] = useState(null);
+  const movsProj = [...movs, ...planos.filter(p => p.data >= hojeStr())];   // o que aconteceu + o que ainda vai acontecer
+  function feito(pl) {
+    const t = window.prompt(`Quanto você ${pl.tipo === "resgate" ? "tirou" : "colocou"} de verdade? (R$)`, num(pl.valor || 0));
+    if (t == null) return;
+    onSalvar(pl.id, { ...pl, kind:"mov", valor: parseValor(t), data: pl.data > hojeStr() ? hojeStr() : pl.data });
+    setMsg(`✅ Feito! ${pl.tipo === "resgate" ? "Resgate" : "Aporte"} de ${brl(parseValor(t))} lançado.`);
+  }
 
   const ontem = somaDias(hoje, -1), fimAnt = fimDoMes(mesAnt(mesAtual));
   const linhas = itens.map(it => {
@@ -1372,6 +1382,16 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
       <Btn primary onClick={() => setForm({ tipo:"cdi", pct:100, dataBase:hoje })}>+ Adicionar investimento</Btn>
       {form && <FormInvest inicial={form} onFechar={() => setForm(null)} onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }} merc={merc}/>}
     </div>
+  );
+
+  const ctxMes = { itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar,
+    planejar: mm => setFormMov({ plano:true, data: mm === mesAtual ? hoje : `${mm}-05`, tipo:"aporte", inv:itens[0]?.id }),
+    lancar: () => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id }) };
+  if (aba !== "geral") return (
+    <>
+      <MesInvest mm={`${ano}-${pad(aba + 1)}`} {...ctxMes}/>
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
+    </>
   );
 
   return (
@@ -1431,6 +1451,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
         </div>
         <EvolucaoInvest serie={serie} oculto={oculto}/>
       </div>
+
+      <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
 
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
@@ -1534,13 +1556,188 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
 
       {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
         onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }}/>}
-      {formMov && <FormMov inicial={formMov} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
     </div>
   );
 }
 const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
 const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
   borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
+
+// ── Plano do ano: patrimônio mês a mês (aconteceu + previsto) e quanto você coloca/tira em cada mês ──
+function totaisMes(mm, c) {
+  const D = mm < c.mesAtual ? fimDoMes(mm) : mm === c.mesAtual ? fimDoMes(mm) : fimDoMes(mm);
+  const ms = mm <= c.mesAtual ? c.movsProj : c.movsProj;
+  const existe = c.itens.some(it => it.dataBase && it.dataBase <= D);
+  const total = c.itens.reduce((t, it) => t + (valorEm(it, ms, D, c.merc) ?? 0), 0);
+  const rend = c.itens.reduce((t, it) => t + rendeu(it, ms, fimDoMes(mesAnt(mm)), D, c.merc), 0);
+  const real = c.movs.filter(m => m.data.startsWith(mm)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
+  const plan = c.planos.filter(p => p.data.startsWith(mm) && p.data >= c.hoje).reduce((t, p) => t + sinal(p) * (p.valor || 0), 0);
+  return { mm, existe, total, rend, real, plan, passado: mm < c.mesAtual, atual: mm === c.mesAtual };
+}
+function PlanoAno({ ano, onAba, meta, v, oculto, ...c }) {
+  const dados = Array.from({ length:12 }, (_, i) => totaisMes(`${ano}-${pad(i + 1)}`, { ...c, meta }));
+  const vis = dados.filter(d => d.existe);
+  if (!vis.length) return null;
+  const W = 1000, H = 210, pl = 54, pr = 20, pb = 24, pt = 24, bw = (W - pl - pr) / 12;
+  const vals = vis.map(d => d.total), mx = Math.max(...vals, meta || 0) * 1.05, mn = Math.max(0, Math.min(...vals) * .9);
+  const x = i => pl + bw * i + bw / 2, y = val => H - pb - (val - mn) / ((mx - mn) || 1) * (H - pb - pt);
+  const pts = dados.map((d, i) => d.existe ? [x(i), y(d.total), d] : null).filter(Boolean);
+  const corte = pts.findIndex(([, , d]) => !d.passado && !d.atual);
+  const real = corte < 0 ? pts : pts.slice(0, corte), prev = corte < 0 ? [] : pts.slice(Math.max(0, corte - 1));
+  const linha = arr => arr.map(([a, b], i) => `${i ? "L" : "M"}${a.toFixed(1)},${b.toFixed(1)}`).join(" ");
+  const mesMeta = meta ? dados.find(d => d.existe && d.total >= meta) : null;
+  const H2 = 120, z = H2 / 2 + 4, mxB = Math.max(1, ...dados.map(d => Math.abs(d.real) + Math.abs(d.plan)));
+  const grade = Array.from({ length:4 }, (_, i) => mn + (mx - mn) * i / 3);
+  const k = n => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(".", ",")} mil` : String(Math.round(n));
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo={`🗓️ Plano de ${ano}`} sub="linha cheia = aconteceu · tracejada = previsão com o que você planejou">
+        <HeadBtn onClick={() => c.planejar(c.mesAtual)}>+ Planejar</HeadBtn>
+      </Cabeca>
+      {mesMeta && <div style={{ padding:"8px 14px 0", fontSize:12, color:P.roxo, fontWeight:700 }}>🎯 Pelo plano, você bate a meta de {v(meta)} em {MESES[+mesMeta.mm.slice(5) - 1].toLowerCase()}.</div>}
+      <div style={{ padding:"6px 12px 0" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Patrimônio mês a mês em ${ano}`}>
+          {grade.map((g, i) => <g key={i}><line x1={pl} x2={W - pr} y1={y(g)} y2={y(g)} stroke="#ECE8F5"/>
+            <text x={pl - 6} y={y(g) + 3} textAnchor="end" fontSize="10" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{oculto ? "‑‑‑" : k(g)}</text></g>)}
+          {meta > 0 && meta <= mx && <g><line x1={pl} x2={W - pr} y1={y(meta)} y2={y(meta)} stroke="#F6C343" strokeDasharray="5 4" strokeWidth="1.5"/>
+            <text x={W - pr} y={y(meta) - 5} textAnchor="end" fontSize="10" fontWeight="700" fill="#8A6500" fontFamily="Montserrat, sans-serif">meta</text></g>}
+          {real.length > 1 && <path d={linha(real)} fill="none" stroke="#4C27A0" strokeWidth="2.5"/>}
+          {prev.length > 1 && <path d={linha(prev)} fill="none" stroke="#4C27A0" strokeWidth="2.2" strokeDasharray="6 5"/>}
+          {pts.map(([a, b, d]) => <circle key={d.mm} cx={a} cy={b} r={d.atual ? 5 : 3.5} fill={d.passado || d.atual ? "#4C27A0" : "#fff"} stroke="#4C27A0" strokeWidth="2"
+            style={{ cursor:"pointer" }} onClick={() => onAba(+d.mm.slice(5) - 1)}><title>{`${MESES[+d.mm.slice(5) - 1]}: ${brl(d.total)}`}</title></circle>)}
+          {pts.length > 0 && !oculto && (() => { const [a, b, d] = pts[pts.length - 1]; return <text x={Math.min(a, W - pr)} y={b - 10} textAnchor="end" fontSize="11.5" fontWeight="800" fill={P.tinta} fontFamily="Montserrat, sans-serif">{brl(d.total).replace(/,\d\d$/, "")} em {MESES[+d.mm.slice(5) - 1].slice(0, 3).toLowerCase()}</text>; })()}
+          {dados.map((d, i) => <text key={d.mm} x={x(i)} y={H - 6} textAnchor="middle" fontSize="11" fontWeight={d.atual ? 800 : 600} fill={d.atual ? P.roxo : P.suave}
+            fontFamily="Montserrat, sans-serif" style={{ cursor:"pointer" }} onClick={() => onAba(i)}>{MESES[i].slice(0, 3)}</text>)}
+        </svg>
+      </div>
+      <div style={{ display:"flex", gap:14, fontSize:10.5, fontWeight:700, color:P.suave, padding:"2px 14px" }}>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:"#1F5FBF", marginRight:4 }}/>Colocou</span>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:P.vermelho, marginRight:4 }}/>Tirou</span>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, border:"1.5px dashed #6B5FA0", marginRight:4 }}/>Planejado</span>
+      </div>
+      <div style={{ padding:"0 12px 10px" }}>
+        <svg viewBox={`0 0 ${W} ${H2}`} width="100%" role="img" aria-label="Aportes e resgates por mês">
+          <line x1={pl} x2={W - pr} y1={z} y2={z} stroke={P.lilas}/>
+          {dados.map((d, i) => {
+            const partes = [[d.real, false], [d.plan, true]].filter(([val]) => Math.abs(val) > .005);
+            let acimaY = z, abaixoY = z;
+            return <g key={d.mm} style={{ cursor:"pointer" }} onClick={() => onAba(i)}>
+              {partes.map(([val, pl2], j) => {
+                const h = Math.abs(val) / mxB * (H2 / 2 - 16), cor = val > 0 ? "#1F5FBF" : P.vermelho;
+                const yy = val > 0 ? (acimaY -= h) : abaixoY; if (val < 0) abaixoY += h;
+                return <rect key={j} x={x(i) - bw * .22} y={yy} width={bw * .44} height={h} rx="4" fill={cor} fillOpacity={pl2 ? .45 : 1}
+                  stroke={pl2 ? cor : "none"} strokeDasharray={pl2 ? "4 3" : undefined}/>;
+              })}
+              {partes.length > 0 && !oculto && (() => { const t = d.real + d.plan; return <text x={x(i)} y={t >= 0 ? acimaY - 4 : abaixoY + 11} textAnchor="middle" fontSize="10" fontWeight="700"
+                fill={t >= 0 ? "#1F5FBF" : P.vermelho} fontFamily="Montserrat, sans-serif">{t >= 0 ? "+" : "−"}{k(Math.abs(t))}</text>; })()}
+            </g>;
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── Um mês aberto: o que aconteceu (passado) ou o que você planejou (futuro) ──
+function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, planejar, lancar }) {
+  const nome = `${MESES[+mm.slice(5) - 1]} ${mm.slice(0, 4)}`;
+  const futuro = mm > mesAtual, atual = mm === mesAtual;
+  const ini = fimDoMes(mesAnt(mm)), fim = futuro || atual ? fimDoMes(mm) : fimDoMes(mm);
+  const ms = futuro || atual ? movsProj : movs;
+  const linhas = itens.map(it => {
+    const v0 = valorEm(it, ms, ini, merc), v1 = valorEm(it, ms, fim, merc);
+    return { it, v0, v1, mov: liquido(it, ms, ini, fim), rend: rendeu(it, ms, ini, fim, merc) };
+  }).filter(l => l.v1 != null);
+  const soma = k => linhas.reduce((t, l) => t + (l[k] || 0), 0);
+  const rend = soma("rend"), total = soma("v1");
+  const ant = linhas.length ? itens.reduce((t, it) => t + rendeu(it, ms, fimDoMes(mesAnt(mesAnt(mm))), ini, merc), 0) : 0;
+  const colocou = ms.filter(m => m.data.startsWith(mm) && m.tipo !== "resgate").reduce((t, m) => t + (m.valor || 0), 0);
+  const tirou = ms.filter(m => m.data.startsWith(mm) && m.tipo === "resgate").reduce((t, m) => t + (m.valor || 0), 0);
+  const dosPlanos = planos.filter(p => p.data.startsWith(mm));
+  const feitos = movs.filter(m => m.data.startsWith(mm));
+  const nomeInv = id => { const it = itens.find(i => i.id === id); return it ? `${it.nome || it.ticker}${it.instituicao ? " · " + it.instituicao : ""}` : "(removido)"; };
+  const caixaK = { background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px" };
+  const rotK = { fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" };
+  const th = { background:P.lilas, padding:"6px 10px", fontSize:11, textAlign:"right", whiteSpace:"nowrap" };
+  const td = { padding:"7px 10px", borderBottom:`1px solid ${P.linha}`, textAlign:"right", whiteSpace:"nowrap", fontSize:12.5 };
+  if (!linhas.length) return <div style={{ ...caixaBloco, padding:"30px 16px", textAlign:"center", fontSize:13, color:P.suave }}>
+    Nenhum investimento em {nome.toLowerCase()} ainda.</div>;
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+        <span style={{ fontSize:12, fontWeight:800, color: futuro ? "#8A6500" : P.verde, background: futuro ? "#FFF1C2" : "#E3F4E8", borderRadius:999, padding:"4px 12px" }}>
+          {futuro ? "📝 Planejado · previsão com o CDI de hoje" : atual ? "⏳ Mês atual · até hoje + o que falta (previsão)" : "✅ Já aconteceu"}</span>
+        <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
+          {(futuro || atual) && <Btn onClick={() => planejar(mm)}>+ Planejar aporte / resgate</Btn>}
+          {!futuro && <Btn onClick={lancar}>+ Lançar aporte / resgate</Btn>}
+        </div>
+      </div>
+      <div className="fin-kpis">
+        <div style={caixaK}><div style={rotK}>{futuro ? "Vai render (previsão)" : atual ? "Rendimento do mês" : "Rendeu"}</div>
+          <div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rend >= 0 ? P.verde : P.vermelho }}>{vs(rend)}</div>
+          <div style={{ fontSize:11, color:P.suave }}>{ant ? `${rend >= ant ? "▲" : "▼"} ${oculto ? TRACOS : brl(Math.abs(rend - ant))} vs mês anterior` : "\u00a0"}</div></div>
+        <div style={caixaK}><div style={rotK}>{futuro ? "Você planejou" : "Você colocou / tirou"}</div>
+          <div style={{ fontSize:22, fontWeight:900, marginTop:3, color: colocou - tirou >= 0 ? "#1F5FBF" : P.vermelho }}>{colocou - tirou ? vs(colocou - tirou) : "—"}</div>
+          <div style={{ fontSize:11, color:P.suave }}>{colocou ? `colocar ${v(colocou)}` : ""}{colocou && tirou ? " · " : ""}{tirou ? `tirar ${v(tirou)}` : ""}{!colocou && !tirou ? "nada" : ""}</div></div>
+        <div style={caixaK}><div style={rotK}>Patrimônio no fim do mês</div>
+          <div style={{ fontSize:22, fontWeight:900, marginTop:3 }}>{v(total)}</div>
+          <div style={{ fontSize:11, color:P.suave }}>{futuro || atual ? "previsão" : "fechamento"}</div></div>
+        <div style={caixaK}><div style={rotK}>🎯 Meta</div>
+          {meta ? <><div style={{ fontSize:22, fontWeight:900, marginTop:3, color:P.roxo }}>{Math.round(total / meta * 100)}%</div>
+            <div style={{ fontSize:11, color:P.suave }}>{total >= meta ? "meta batida! 🎉" : `faltam ${v(meta - total)}`}</div></>
+          : <div style={{ fontSize:12, color:P.suave, marginTop:6 }}>defina na aba Geral</div>}</div>
+      </div>
+      {(futuro || atual || dosPlanos.length > 0) && (
+        <div style={caixaBloco}>
+          <Cabeca titulo={`📝 Planejado para ${MESES[+mm.slice(5) - 1].toLowerCase()}`}><HeadBtn onClick={() => planejar(mm)}>+ Planejar</HeadBtn></Cabeca>
+          {!dosPlanos.length ? <div style={{ padding:"14px 16px", fontSize:12, color:P.suave }}>Nada planejado. Use “+ Planejar” para dizer quanto pretende colocar ou tirar neste mês e ver como fica o total.</div>
+          : dosPlanos.map(p => (
+            <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", borderBottom:`1px solid ${P.linha}`, background:"#FFFBEF", fontSize:12.5, flexWrap:"wrap" }}>
+              <span style={{ width:46, color:P.suave }}>{dataBR(p.data).slice(0, 5)}</span>
+              <b style={{ flex:1, minWidth:140 }}>{nomeInv(p.inv)}</b>
+              <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:"#FFE9A8", color:"#8A6500" }}>
+                Planejado · {p.tipo === "resgate" ? "tirar" : "colocar"}{p.data < hoje ? " (passou)" : ""}</span>
+              <b style={{ width:110, textAlign:"right", color: p.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>{p.tipo === "resgate" ? "−" : "+"}{v(p.valor || 0)}</b>
+              <Btn onClick={() => feito(p)} style={{ padding:"5px 10px", fontSize:11 }}>✓ Feito</Btn>
+              <button onClick={() => window.confirm("Apagar este planejamento?") && onApagar(p.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+            </div>
+          ))}
+          {dosPlanos.length > 0 && <div style={{ padding:"8px 14px", fontSize:11, color:P.suave }}>Quando acontecer, clique em <b>✓ Feito</b>: vira um aporte/resgate de verdade (dá para mudar o valor).</div>}
+        </div>
+      )}
+      <div style={caixaBloco}>
+        <Cabeca titulo={`📊 Cada investimento em ${MESES[+mm.slice(5) - 1].toLowerCase()}`} sub={futuro ? "previsão" : atual ? "até hoje + previsão até o fim do mês" : ""}/>
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:620, fontFamily:FONT }}>
+            <thead><tr><th style={{ ...th, textAlign:"left" }}>Investimento</th><th style={th}>Saldo no início</th><th style={th}>Colocou / tirou</th><th style={th}>Rendeu</th><th style={th}>Saldo no fim</th></tr></thead>
+            <tbody>{[...linhas].sort((a, b) => b.v1 - a.v1).map(l => (
+              <tr key={l.it.id}>
+                <td style={{ ...td, textAlign:"left", fontWeight:700, whiteSpace:"normal" }}>{l.it.nome || l.it.ticker}<span style={{ fontWeight:500, color:P.suave }}>{l.it.instituicao ? ` · ${l.it.instituicao}` : ""}</span></td>
+                <td style={{ ...td, color:P.suave }}>{l.v0 == null ? "novo" : v(l.v0)}</td>
+                <td style={{ ...td, color: l.mov > 0 ? "#1F5FBF" : l.mov < 0 ? P.vermelho : P.suave }}>{Math.abs(l.mov) > .005 ? vs(l.mov) : "—"}</td>
+                <td style={{ ...td, fontWeight:800, color: l.rend >= 0 ? P.verde : P.vermelho }}>{l.it.tipo === "caixa" ? "—" : vs(l.rend)}</td>
+                <td style={{ ...td, fontWeight:800 }}>{v(l.v1)}</td>
+              </tr>))}
+              <tr><td style={{ ...td, textAlign:"left", fontWeight:800 }}>Total</td><td style={td}>{v(soma("v0"))}</td><td style={td}>{Math.abs(soma("mov")) > .005 ? vs(soma("mov")) : "—"}</td>
+                <td style={{ ...td, fontWeight:900, color: rend >= 0 ? P.verde : P.vermelho }}>{vs(rend)}</td><td style={{ ...td, fontWeight:900 }}>{v(total)}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {feitos.length > 0 && <div style={caixaBloco}>
+        <Cabeca titulo="💸 Aportes e resgates do mês"/>
+        {feitos.map(m => (
+          <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5 }}>
+            <span style={{ width:46, color:P.suave }}>{dataBR(m.data).slice(0, 5)}</span><b style={{ flex:1 }}>{nomeInv(m.inv)}</b>
+            <b style={{ color: m.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>{m.tipo === "resgate" ? "−" : "+"}{v(m.valor || 0)}</b>
+            <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.id)} style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+          </div>))}
+      </div>}
+      <div style={{ fontSize:10.5, color:P.suave }}>{futuro || atual ? "Previsão com o CDI de hoje e as ações no preço atual. " : ""}Valores brutos (antes do imposto). Isto não é recomendação de investimento.</div>
+    </div>
+  );
+}
 
 function EvolucaoInvest({ serie, oculto }) {
   const W = 560, H = 180, pl = 50, pr = 16, pb = 24, pt = 18;
@@ -1659,13 +1856,13 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
     </Janela>
   );
 }
-function FormMov({ inicial, itens, onSalvar, onFechar }) {
+function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
   const [f, setF] = useState({ valorTxt:"", qtd:"", info:"", ...inicial });
   const set = p => setF(x => ({ ...x, ...p }));
   const it = itens.find(i => i.id === f.inv);
   const acao = it?.tipo === "acao";
   return (
-    <Janela titulo="Aporte ou resgate" onFechar={onFechar}>
+    <Janela titulo={plano ? "Planejar aporte ou resgate" : "Aporte ou resgate"} onFechar={onFechar}>
       <Campo rotulo="INVESTIMENTO"><select value={f.inv} onChange={e => set({ inv:e.target.value })} style={campoSt}>
         {itens.map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
@@ -1677,7 +1874,7 @@ function FormMov({ inicial, itens, onSalvar, onFechar }) {
       {acao && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
       <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(f.valorTxt) || !f.inv}
-        onClick={() => onSalvar(uid(), { kind:"mov", inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt), qtd: acao ? parseInt(f.qtd) || 0 : 0, data:f.data || hojeStr() })}>Salvar</Btn></div>
+        onClick={() => onSalvar(uid(), { kind: plano ? "plano" : "mov", inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt), qtd: acao ? parseInt(f.qtd) || 0 : 0, data:f.data || hojeStr() })}>Salvar</Btn></div>
     </Janela>
   );
 }
@@ -2416,7 +2613,7 @@ function FinanceiroApp({ senha, sair }) {
                 background: investir ? P.papel : "transparent", color: investir ? P.roxo : P.suave, fontWeight: investir ? 800 : 600,
                 boxShadow: investir ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>💰<span className="fin-nome"> Investimentos</span></button>
           </div>
-          <div style={{ display: investir ? "none" : "flex", alignItems:"center", gap:4, marginLeft:4 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:4, marginLeft:4 }}>
             <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>‹</button>
             <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
@@ -2444,7 +2641,7 @@ function FinanceiroApp({ senha, sair }) {
             color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
         </div>
         {/* abas como no Google Planilhas */}
-        {!investir && <div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
+        {<div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
           <button onClick={() => setAba("geral")} style={tab(aba === "geral")}>Geral</button>
           {MESES.map((m, i) => <button key={m} onClick={() => setAba(i)} style={tab(aba === i)}>{m}</button>)}
         </div>}
@@ -2454,11 +2651,11 @@ function FinanceiroApp({ senha, sair }) {
         {investir ? <>
           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
             <div style={{ background:"#0E6B3B", color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16, letterSpacing:".1em", textTransform:"uppercase" }}>
-              💰 Investimentos · {new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" })}</div>
+              💰 Investimentos · {aba === "geral" ? new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" }) : `${MESES[aba]} ${ano}`}</div>
           </div>
           {msg && <div style={{ background:"#EEF8F0", border:"1px solid #CDEBD3", color:P.verde, borderRadius:12, padding:"10px 14px", fontSize:12.5, marginBottom:12,
             display:"flex", gap:10 }}><span style={{ flex:1 }}>{msg}</span><button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave }}>✕</button></div>}
-          <Investimentos invest={invest} setMsg={setMsg}
+          <Investimentos invest={invest} setMsg={setMsg} ano={ano} aba={aba} onAba={setAba}
             onSalvar={(id, x) => setInvest(cs => ({ ...cs, [id]: { ...x, upd:Date.now() } }))}
             onApagar={id => setInvest(cs => ({ ...cs, [id]: { ...cs[id], apagado:true, upd:Date.now() } }))}/>
         </> : <>
