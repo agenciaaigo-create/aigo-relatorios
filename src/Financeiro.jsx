@@ -1264,6 +1264,18 @@ function rendeu(it, movs, de, ate, merc) {
   const v0 = de >= it.dataBase ? valorEm(it, movs, de, merc) : baseDe(it);
   return v1 - v0 - liquido(it, movs, ini, ate);
 }
+// Imposto de renda da renda fixa (tabela regressiva), pelo tempo desde a data do saldo
+const aliquotaIR = dias => dias <= 180 ? .225 : dias <= 360 ? .20 : dias <= 720 ? .175 : .15;
+// Líquido estimado de hoje: líquido informado na data do saldo + rendimento novo já sem o IR.
+// Ações e saldo parado: igual ao bruto (ações são isentas até R$ 20 mil de vendas no mês).
+function liquidoHoje(it, movs, merc) {
+  const hoje = hojeStr(), bruto = valorEm(it, movs, hoje, merc) ?? 0;
+  if (it.tipo !== "cdi") return bruto;
+  const entrou = liquido(it, movs, it.dataBase, hoje);
+  const rend = bruto - (it.saldo || 0) - entrou;
+  const dias = Math.round((new Date(hoje + "T12:00:00") - new Date(it.dataBase + "T12:00:00")) / 86400000);
+  return (it.liq || it.saldo || 0) + entrou + rend * (1 - aliquotaIR(dias));
+}
 function custoAcao(it, movs) { return (it.custo || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0); }
 
 // Busca o CDI e as cotações (a cada 10 minutos com a aba aberta)
@@ -1311,11 +1323,12 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
   const ontem = somaDias(hoje, -1), fimAnt = fimDoMes(mesAnt(mesAtual));
   const linhas = itens.map(it => {
     const atual = valorEm(it, movs, hoje, merc) ?? 0;
-    return { it, atual, mes: rendeu(it, movs, fimAnt, hoje, merc), dia: rendeu(it, movs, ontem, hoje, merc),
+    return { it, atual, liq: liquidoHoje(it, movs, merc), mes: rendeu(it, movs, fimAnt, hoje, merc), dia: rendeu(it, movs, ontem, hoje, merc),
       total: it.tipo === "acao" ? atual - custoAcao(it, movs) : rendeu(it, movs, somaDias(it.dataBase || hoje, -1), hoje, merc) };
   });
   const soma = k => linhas.reduce((t, l) => t + l[k], 0);
-  const patrimonio = soma("atual"), rendMes = soma("mes"), rendDia = soma("dia");
+  const patrimonio = soma("atual"), patrimonioLiq = soma("liq"), rendMes = soma("mes"), rendDia = soma("dia");
+  const semLiq = linhas.filter(l => l.it.tipo === "cdi" && !l.it.liq).length;
   const aportesMes = movs.filter(m => m.data.startsWith(mesAtual)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
   const cdiAno = merc.cdi.ultima ? (Math.pow(1 + merc.cdi.ultima / 100, 252) - 1) * 100 : 0;
   const proj12 = linhas.reduce((t, l) => t + (l.it.tipo === "cdi" ? l.atual * Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) : l.atual), 0);
@@ -1374,7 +1387,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
 
       <div className="fin-kpis">
         <div style={caixaK}><div style={rotK}>Patrimônio investido</div><div style={{ fontSize:22, fontWeight:900, marginTop:3 }}>{v(patrimonio)}</div>
-          <div style={{ fontSize:11, color:P.suave }}>em {itens.length} investimento{itens.length > 1 ? "s" : ""}</div></div>
+          <div style={{ fontSize:12, marginTop:2 }}>Líquido <b style={{ color:P.roxo }}>{v(patrimonioLiq)}</b></div>
+          <div style={{ fontSize:10.5, color:P.suave }}>{semLiq ? `${semLiq} caixinha${semLiq > 1 ? "s" : ""} sem o líquido informado` : `bruto · ${itens.length} investimento${itens.length > 1 ? "s" : ""}`}</div></div>
         <div style={caixaK}><div style={rotK}>Rendeu este mês</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendMes >= 0 ? P.verde : P.vermelho }}>{vs(rendMes)}</div>
           <div style={{ fontSize:11, color:P.suave }}>{aportesMes ? `aportes do mês: ${v(aportesMes)}` : "sem aportes este mês"}</div></div>
         <div style={caixaK}><div style={rotK}>Hoje</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendDia >= 0 ? P.verde : P.vermelho }}>{vs(rendDia)}</div>
@@ -1420,7 +1434,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
 
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
-          {linhas.map(({ it, atual, mes, dia, total }) => {
+          {linhas.map(({ it, atual, liq, mes, dia, total }) => {
             const t = TIPOS_INV[it.tipo] || TIPOS_INV.caixa, a = merc.acoes[it.ticker];
             const q = it.tipo === "acao" ? (it.qtd || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((x, m) => x + sinal(m) * (m.qtd || 0), 0) : 0;
             const varDia = a && a.anterior ? (a.preco / a.anterior - 1) * 100 : null;
@@ -1435,6 +1449,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
                 <span style={{ fontSize:10.5, color:P.suave }}>{it.instituicao}{it.tipo === "acao" ? ` · ${q} cota${q !== 1 ? "s" : ""}` : ""}</span>
                 <b style={{ fontSize:20, marginTop:2 }}>{v(atual)}</b>
                 {it.tipo === "cdi" && <>
+                  <span style={{ fontSize:11.5, color:P.tinta }}>Líquido <b style={{ color:P.roxo }}>{v(liq)}</b>{!it.liq && <span style={{ color:P.suave, fontSize:10 }}> (informe o líquido)</span>}</span>
                   <span style={{ fontSize:11.5, fontWeight:800, color:P.verde }}>{vs(mes)} este mês</span>
                   <span style={{ fontSize:10.5, color:P.suave }}>{vs(dia)} hoje · {vs(total)} desde {dataBR(it.dataBase).slice(0, 5)}</span>
                 </>}
@@ -1451,9 +1466,10 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
                   <span style={{ fontSize:10.5, fontWeight:700, color:P.roxo }}>🎯 {Math.round(atual / it.meta * 100)}% de {v(it.meta)}</span></div>}
                 <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
                   {it.tipo !== "acao" && <button onClick={() => {
-                    const t2 = window.prompt(`Saldo de hoje em "${it.nome}" (veja no app do banco):`, num(atual)); if (t2 == null) return;
-                    onSalvar(it.id, { ...it, saldo: parseValor(t2), dataBase: hoje });
-                    setMsg(`✅ Saldo de "${it.nome}" ajustado para ${brl(parseValor(t2))}. Daqui para frente o site calcula o rendimento a partir dele.`);
+                    const t2 = window.prompt(`Saldo BRUTO de hoje em "${it.nome}" (veja no app do banco):`, num(atual)); if (t2 == null) return;
+                    const t3 = it.tipo === "cdi" ? window.prompt(`E o saldo LÍQUIDO de hoje? (opcional, deixe em branco se não souber)`, "") : "";
+                    onSalvar(it.id, { ...it, saldo: parseValor(t2), liq: t3 ? parseValor(t3) : 0, dataBase: hoje });
+                    setMsg(`✅ Saldo de "${it.nome}" ajustado para ${brl(parseValor(t2))}${t3 ? ` (líquido ${brl(parseValor(t3))})` : ""}. Daqui para frente o site calcula o rendimento a partir dele.`);
                   }} style={mini}>Ajustar saldo</button>}
                   <button onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:it.id })} style={mini}>+ Aporte / resgate</button>
                   <button onClick={() => setForm(it)} style={mini}>Editar</button>
@@ -1512,7 +1528,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg }) {
       </div>
 
       <div style={{ fontSize:10.5, color:P.suave, lineHeight:1.6 }}>
-        Os valores das caixinhas são uma estimativa pelo CDI oficial (antes do imposto de renda e do IOF); confira com o app do banco e use “Ajustar saldo” quando quiser.
+        Os valores das caixinhas são uma estimativa pelo CDI oficial. O bruto é antes do imposto; o líquido desconta o imposto de renda do rendimento novo
+        (22,5% até 6 meses, 20% até 1 ano, 17,5% até 2 anos e 15% depois), sem o IOF dos primeiros 30 dias. Confira com o app do banco e use “Ajustar saldo” quando quiser.
         Cotações com cerca de 15 minutos de atraso. Isto não é recomendação de investimento.</div>
 
       {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
@@ -1602,7 +1619,7 @@ function Campo({ rotulo, children, dica }) {
     {children}{dica && <span style={{ display:"block", fontSize:10.5, color:P.suave, marginTop:3 }}>{dica}</span>}</label>;
 }
 function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
-  const [f, setF] = useState({ nome:"", instituicao:"", pct:100, qtd:"", ...inicial, saldoTxt: inicial.tipo === "acao" ? (inicial.custo ? num(inicial.custo) : "") : (inicial.saldo ? num(inicial.saldo) : "") });
+  const [f, setF] = useState({ nome:"", instituicao:"", pct:100, qtd:"", ...inicial, liqTxt: inicial.liq ? num(inicial.liq) : "", saldoTxt: inicial.tipo === "acao" ? (inicial.custo ? num(inicial.custo) : "") : (inicial.saldo ? num(inicial.saldo) : "") });
   const set = p => setF(x => ({ ...x, ...p }));
   const a = f.ticker && merc.acoes[f.ticker];
   const precoData = a ? precoEm(a, f.dataBase || hojeStr()) : null;
@@ -1611,7 +1628,7 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
     const valor = parseValor(f.saldoTxt);
     const x = { nome: f.nome.trim() || (f.tipo === "acao" ? f.ticker : TIPOS_INV[f.tipo].nome), instituicao: f.instituicao.trim(), tipo: f.tipo,
       dataBase: f.dataBase || hojeStr(), meta: Number(f.meta) || 0, ord: f.ord || Date.now() };
-    if (f.tipo === "cdi") Object.assign(x, { pct: Number(String(f.pct).replace(",", ".")) || 100, saldo: valor });
+    if (f.tipo === "cdi") Object.assign(x, { pct: Number(String(f.pct).replace(",", ".")) || 100, saldo: valor, liq: parseValor(f.liqTxt) || 0 });
     if (f.tipo === "acao") Object.assign(x, { ticker: (f.ticker || "").toUpperCase().trim(), custo: valor, qtd: parseInt(f.qtd) || sugestaoQtd || 0 });
     if (f.tipo === "caixa") Object.assign(x, { saldo: valor });
     onSalvar(f.id || uid(), x);
@@ -1627,8 +1644,10 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
       <Campo rotulo="NOME"><input value={f.nome} onChange={e => set({ nome:e.target.value })} placeholder={f.tipo === "acao" ? "Petrobras" : f.tipo === "cdi" ? "Caixinha 120%" : "Saldo XP"} style={campoSt}/></Campo>
       <Campo rotulo="BANCO / CORRETORA"><input value={f.instituicao} onChange={e => set({ instituicao:e.target.value })} placeholder="Nubank, Mercado Pago, XP…" style={campoSt}/></Campo>
       {f.tipo === "cdi" && <Campo rotulo="RENDE QUANTOS % DO CDI?"><input value={f.pct} inputMode="decimal" onChange={e => set({ pct:e.target.value })} style={campoSt}/></Campo>}
-      <Campo rotulo={f.tipo === "acao" ? "QUANTO VOCÊ PAGOU NO TOTAL (R$)" : "SALDO DE HOJE (R$)"} dica={f.tipo === "cdi" ? "Veja no app do banco. A partir daqui o site calcula o rendimento." : null}>
+      <Campo rotulo={f.tipo === "acao" ? "QUANTO VOCÊ PAGOU NO TOTAL (R$)" : f.tipo === "cdi" ? "SALDO BRUTO DE HOJE (R$)" : "SALDO DE HOJE (R$)"} dica={f.tipo === "cdi" ? "O valor em destaque no app do banco. A partir daqui o site calcula o rendimento." : null}>
         <input value={f.saldoTxt} inputMode="decimal" onChange={e => set({ saldoTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
+      {f.tipo === "cdi" && <Campo rotulo="SALDO LÍQUIDO DE HOJE (OPCIONAL, R$)" dica="Quanto sobraria se tirasse hoje (já sem imposto). Costuma aparecer no app como “valor líquido” ou “se resgatar hoje”.">
+        <input value={f.liqTxt} inputMode="decimal" onChange={e => set({ liqTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>}
       {f.tipo === "acao" && <Campo rotulo="QUANTAS COTAS" dica={sugestaoQtd ? `Pela cotação de ${dataBR(f.dataBase || hojeStr())} (${brl(precoData)}), dá cerca de ${sugestaoQtd} cota${sugestaoQtd > 1 ? "s" : ""}.` : null}>
         <input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} placeholder={sugestaoQtd ? String(sugestaoQtd) : "10"} style={campoSt}/></Campo>}
       <Campo rotulo={f.tipo === "acao" ? "DATA DA COMPRA" : "DESDE (DATA DO SALDO)"}><input type="date" value={f.dataBase || ""} onChange={e => set({ dataBase:e.target.value })} style={campoSt}/></Campo>
