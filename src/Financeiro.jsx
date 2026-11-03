@@ -1234,6 +1234,11 @@ function fatorCDI(cdi, pct, d0, d1) {
   return f;
 }
 const sinal = m => m.tipo === "resgate" ? -1 : 1;
+// Transferência entre investimentos = saída de um + entrada no outro (não muda o total)
+const expandirTransf = arr => arr.flatMap(m => m.tipo === "transf" && m.para ? [
+  { ...m, tipo:"resgate", transf:true, orig:m.id, id:m.id + "<" },
+  { ...m, inv:m.para, tipo:"aporte", qtd:0, transf:true, dest:true, orig:m.id, id:m.id + ">" }] : [m]);
+const ehTransf = m => m.tipo === "transf" || m.transf;
 function precoEm(a, D) {
   if (!a) return null;
   if (D >= hojeStr()) return a.preco;
@@ -1307,10 +1312,10 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   const vs = x => oculto ? TRACOS : `${x >= 0 ? "+" : "−"}${brl(Math.abs(x))}`;
   const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov" && x.kind !== "plano").map(([id, x]) => ({ id, ...x }))
     .sort((a, b) => (a.ord || 0) - (b.ord || 0));
-  const movs = Object.entries(invest).filter(([, x]) => x.kind === "mov" && !x.apagado).map(([id, x]) => ({ id, ...x }))
+  const movs = expandirTransf(Object.entries(invest).filter(([, x]) => x.kind === "mov" && !x.apagado).map(([id, x]) => ({ id, ...x })))
     .sort((a, b) => b.data.localeCompare(a.data));
   // planejados (aportes/resgates que você pretende fazer): contam na previsão até virarem "feito"
-  const planos = Object.entries(invest).filter(([, x]) => x.kind === "plano" && !x.apagado).map(([id, x]) => ({ id, ...x }))
+  const planos = expandirTransf(Object.entries(invest).filter(([, x]) => x.kind === "plano" && !x.apagado).map(([id, x]) => ({ id, ...x })))
     .sort((a, b) => a.data.localeCompare(b.data));
   const meta = invest._meta?.valor || 0;
   const tickers = [...new Set(itens.filter(i => i.tipo === "acao" && i.ticker).map(i => i.ticker))].sort();
@@ -1324,11 +1329,13 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   const [formMov, setFormMov] = useState(null);
   const movsProj = [...movs, ...planos.filter(p => p.data >= hojeStr())];   // o que aconteceu + o que ainda vai acontecer
   function feito(pl) {
-    const t = window.prompt(`Quanto você ${pl.tipo === "resgate" ? "tirou" : "colocou"} de verdade? (R$)`, num(pl.valor || 0));
+    const id = pl.orig || pl.id, raw = invest[id] || pl;
+    const t = window.prompt(`Quanto você ${raw.tipo === "transf" ? "transferiu" : raw.tipo === "resgate" ? "tirou" : "colocou"} de verdade? (R$)`, num(raw.valor || 0));
     if (t == null) return;
-    onSalvar(pl.id, { ...pl, kind:"mov", valor: parseValor(t), data: pl.data > hojeStr() ? hojeStr() : pl.data });
-    setMsg(`✅ Feito! ${pl.tipo === "resgate" ? "Resgate" : "Aporte"} de ${brl(parseValor(t))} lançado.`);
+    onSalvar(id, { ...raw, kind:"mov", valor: parseValor(t), data: raw.data > hojeStr() ? hojeStr() : raw.data });
+    setMsg(`✅ Feito! ${raw.tipo === "transf" ? "Transferência" : raw.tipo === "resgate" ? "Resgate" : "Aporte"} de ${brl(parseValor(t))} lançado.`);
   }
+  const transformar = m => { const raw = invest[m.orig || m.id] || m; setFormMov({ ...raw, id: m.orig || m.id, tipo:"transf", valorTxt: num(raw.valor || 0) }); };
 
   const ontem = somaDias(hoje, -1), fimAnt = fimDoMes(mesAnt(mesAtual));
   const linhas = itens.map(it => {
@@ -1384,7 +1391,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
     </div>
   );
 
-  const ctxMes = { itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar,
+  const ctxMes = { itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, transformar,
     planejar: mm => setFormMov({ plano:true, data: mm === mesAtual ? hoje : `${mm}-05`, tipo:"aporte", inv:itens[0]?.id }),
     lancar: () => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id }) };
   if (aba !== "geral") return (
@@ -1399,7 +1406,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
         <span style={{ fontSize:11, color:P.suave }}>{info}</span>
         <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
-          <Btn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Aporte / resgate</Btn>
+          <Btn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Aporte / resgate / ↔</Btn>
           <Btn onClick={() => setForm({ tipo:"cdi", pct:100, dataBase:hoje })}>+ Investimento</Btn>
           <Btn onClick={() => setVista(x => x === "cartoes" ? "tabela" : "cartoes")}>{vista === "cartoes" ? "☰ Editar" : "▦ Cartões"}</Btn>
         </div>
@@ -1535,17 +1542,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         <Cabeca titulo="💸 Aportes e resgates" sub={`${movs.length} movimentaç${movs.length === 1 ? "ão" : "ões"}`}>
           <HeadBtn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Adicionar</HeadBtn>
         </Cabeca>
-        {!movs.length ? <div style={{ padding:"16px", fontSize:12, color:P.suave, textAlign:"center" }}>Quando você colocar ou tirar dinheiro de algum investimento, lance aqui. Assim o rendimento fica certo.</div> : (
-          <div>{movs.slice(0, 50).map(m => { const it = itens.find(i => i.id === m.inv); return (
-            <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5 }}>
-              <span style={{ color:P.suave, width:72 }}>{dataBR(m.data)}</span>
-              <b style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it?.nome || it?.ticker || "(removido)"}</b>
-              <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background: m.tipo === "resgate" ? "#FBD9DB" : "#DCE8FB", color: m.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>
-                {m.tipo === "resgate" ? (it?.tipo === "acao" ? "Venda" : "Resgate") : (it?.tipo === "acao" ? "Compra" : "Aporte")}</span>
-              {m.qtd ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : null}
-              <b style={{ width:110, textAlign:"right" }}>{v(m.valor || 0)}</b>
-              <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
-            </div>); })}</div>
+        {!movs.length ? <div style={{ padding:"16px", fontSize:12, color:P.suave, textAlign:"center" }}>Quando você colocar, tirar ou mudar dinheiro de lugar de algum investimento, lance aqui. Assim o rendimento fica certo.</div> : (
+          <div>{movs.filter(m => !m.dest).slice(0, 50).map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf", inv:m.inv } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar}/>)}</div>
         )}
       </div>
 
@@ -1563,6 +1561,27 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
 const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
   borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
+
+// Uma linha de aporte / resgate / transferência
+function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
+  const it = itens.find(i => i.id === m.inv), para = itens.find(i => i.id === m.para);
+  const nome = i => i ? `${i.nome || i.ticker}${i.instituicao ? " · " + i.instituicao : ""}` : "(removido)";
+  const tr = m.tipo === "transf" || m.transf;
+  const [bg, fg, txt] = tr ? ["#EDE6FB", "#5B2BA6", "↔ Transferência"] : m.tipo === "resgate" ? ["#FBD9DB", P.vermelho, it?.tipo === "acao" ? "Venda" : "Resgate"]
+    : ["#DCE8FB", "#1F5FBF", it?.tipo === "acao" ? "Compra" : "Aporte"];
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5, flexWrap:"wrap" }}>
+      <span style={{ color:P.suave, width:data === "curta" ? 46 : 72 }}>{data === "curta" ? dataBR(m.data).slice(0, 5) : dataBR(m.data)}</span>
+      <b style={{ flex:1, minWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr ? <>{nome(it)} <span style={{ color:P.suave }}>→</span> {nome(para)}</> : nome(it)}</b>
+      <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:bg, color:fg }}>{txt}</span>
+      {m.qtd && !tr ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : null}
+      <b style={{ width:110, textAlign:"right", color:fg }}>{tr ? "" : m.tipo === "resgate" ? "−" : "+"}{v(m.valor || 0)}</b>
+      {!tr && m.tipo === "resgate" && onTransformar && <button onClick={() => onTransformar(m)} title="Na verdade o dinheiro foi para outro investimento"
+        style={{ ...mini, padding:"2px 7px" }}>↔ foi transferência?</button>}
+      <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.orig || m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+    </div>
+  );
+}
 
 // ── Plano do ano: patrimônio mês a mês (aconteceu + previsto) e quanto você coloca/tira em cada mês ──
 function totaisMes(mm, c) {
@@ -1640,7 +1659,7 @@ function PlanoAno({ ano, onAba, meta, v, oculto, ...c }) {
 }
 
 // ── Um mês aberto: o que aconteceu (passado) ou o que você planejou (futuro) ──
-function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, planejar, lancar }) {
+function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, planejar, lancar, transformar }) {
   const nome = `${MESES[+mm.slice(5) - 1]} ${mm.slice(0, 4)}`;
   const futuro = mm > mesAtual, atual = mm === mesAtual;
   const ini = fimDoMes(mesAnt(mm)), fim = futuro || atual ? fimDoMes(mm) : fimDoMes(mm);
@@ -1652,10 +1671,11 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
   const soma = k => linhas.reduce((t, l) => t + (l[k] || 0), 0);
   const rend = soma("rend"), total = soma("v1");
   const ant = linhas.length ? itens.reduce((t, it) => t + rendeu(it, ms, fimDoMes(mesAnt(mesAnt(mm))), ini, merc), 0) : 0;
-  const colocou = ms.filter(m => m.data.startsWith(mm) && m.tipo !== "resgate").reduce((t, m) => t + (m.valor || 0), 0);
-  const tirou = ms.filter(m => m.data.startsWith(mm) && m.tipo === "resgate").reduce((t, m) => t + (m.valor || 0), 0);
-  const dosPlanos = planos.filter(p => p.data.startsWith(mm));
-  const feitos = movs.filter(m => m.data.startsWith(mm));
+  const colocou = ms.filter(m => m.data.startsWith(mm) && !m.transf && m.tipo !== "resgate").reduce((t, m) => t + (m.valor || 0), 0);
+  const tirou = ms.filter(m => m.data.startsWith(mm) && !m.transf && m.tipo === "resgate").reduce((t, m) => t + (m.valor || 0), 0);
+  const transferiu = ms.filter(m => m.data.startsWith(mm) && m.transf && !m.dest).reduce((t, m) => t + (m.valor || 0), 0);
+  const dosPlanos = planos.filter(p => p.data.startsWith(mm) && !p.dest);
+  const feitos = movs.filter(m => m.data.startsWith(mm) && !m.dest);
   const nomeInv = id => { const it = itens.find(i => i.id === id); return it ? `${it.nome || it.ticker}${it.instituicao ? " · " + it.instituicao : ""}` : "(removido)"; };
   const caixaK = { background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px" };
   const rotK = { fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" };
@@ -1669,8 +1689,8 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
         <span style={{ fontSize:12, fontWeight:800, color: futuro ? "#8A6500" : P.verde, background: futuro ? "#FFF1C2" : "#E3F4E8", borderRadius:999, padding:"4px 12px" }}>
           {futuro ? "📝 Planejado · previsão com o CDI de hoje" : atual ? "⏳ Mês atual · até hoje + o que falta (previsão)" : "✅ Já aconteceu"}</span>
         <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
-          {(futuro || atual) && <Btn onClick={() => planejar(mm)}>+ Planejar aporte / resgate</Btn>}
-          {!futuro && <Btn onClick={lancar}>+ Lançar aporte / resgate</Btn>}
+          {(futuro || atual) && <Btn onClick={() => planejar(mm)}>+ Planejar movimentação</Btn>}
+          {!futuro && <Btn onClick={lancar}>+ Lançar movimentação</Btn>}
         </div>
       </div>
       <div className="fin-kpis">
@@ -1679,7 +1699,8 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
           <div style={{ fontSize:11, color:P.suave }}>{ant ? `${rend >= ant ? "▲" : "▼"} ${oculto ? TRACOS : brl(Math.abs(rend - ant))} vs mês anterior` : "\u00a0"}</div></div>
         <div style={caixaK}><div style={rotK}>{futuro ? "Você planejou" : "Você colocou / tirou"}</div>
           <div style={{ fontSize:22, fontWeight:900, marginTop:3, color: colocou - tirou >= 0 ? "#1F5FBF" : P.vermelho }}>{colocou - tirou ? vs(colocou - tirou) : "—"}</div>
-          <div style={{ fontSize:11, color:P.suave }}>{colocou ? `colocar ${v(colocou)}` : ""}{colocou && tirou ? " · " : ""}{tirou ? `tirar ${v(tirou)}` : ""}{!colocou && !tirou ? "nada" : ""}</div></div>
+          <div style={{ fontSize:11, color:P.suave }}>{colocou ? `colocar ${v(colocou)}` : ""}{colocou && tirou ? " · " : ""}{tirou ? `tirar ${v(tirou)}` : ""}{!colocou && !tirou && !transferiu ? "nada" : ""}
+            {transferiu ? <span style={{ color:"#5B2BA6" }}>{colocou || tirou ? " · " : ""}↔ mudou de lugar {v(transferiu)}</span> : ""}</div></div>
         <div style={caixaK}><div style={rotK}>Patrimônio no fim do mês</div>
           <div style={{ fontSize:22, fontWeight:900, marginTop:3 }}>{v(total)}</div>
           <div style={{ fontSize:11, color:P.suave }}>{futuro || atual ? "previsão" : "fechamento"}</div></div>
@@ -1695,12 +1716,12 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
           : dosPlanos.map(p => (
             <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", borderBottom:`1px solid ${P.linha}`, background:"#FFFBEF", fontSize:12.5, flexWrap:"wrap" }}>
               <span style={{ width:46, color:P.suave }}>{dataBR(p.data).slice(0, 5)}</span>
-              <b style={{ flex:1, minWidth:140 }}>{nomeInv(p.inv)}</b>
+              <b style={{ flex:1, minWidth:140 }}>{nomeInv(p.inv)}{p.transf ? <> <span style={{ color:P.suave }}>→</span> {nomeInv(p.para)}</> : null}</b>
               <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:"#FFE9A8", color:"#8A6500" }}>
-                Planejado · {p.tipo === "resgate" ? "tirar" : "colocar"}{p.data < hoje ? " (passou)" : ""}</span>
-              <b style={{ width:110, textAlign:"right", color: p.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>{p.tipo === "resgate" ? "−" : "+"}{v(p.valor || 0)}</b>
+                Planejado · {p.transf ? "transferir" : p.tipo === "resgate" ? "tirar" : "colocar"}{p.data < hoje ? " (passou)" : ""}</span>
+              <b style={{ width:110, textAlign:"right", color: p.transf ? "#5B2BA6" : p.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>{p.transf ? "" : p.tipo === "resgate" ? "−" : "+"}{v(p.valor || 0)}</b>
               <Btn onClick={() => feito(p)} style={{ padding:"5px 10px", fontSize:11 }}>✓ Feito</Btn>
-              <button onClick={() => window.confirm("Apagar este planejamento?") && onApagar(p.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+              <button onClick={() => window.confirm("Apagar este planejamento?") && onApagar(p.orig || p.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
             </div>
           ))}
           {dosPlanos.length > 0 && <div style={{ padding:"8px 14px", fontSize:11, color:P.suave }}>Quando acontecer, clique em <b>✓ Feito</b>: vira um aporte/resgate de verdade (dá para mudar o valor).</div>}
@@ -1726,13 +1747,8 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
         </div>
       </div>
       {feitos.length > 0 && <div style={caixaBloco}>
-        <Cabeca titulo="💸 Aportes e resgates do mês"/>
-        {feitos.map(m => (
-          <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5 }}>
-            <span style={{ width:46, color:P.suave }}>{dataBR(m.data).slice(0, 5)}</span><b style={{ flex:1 }}>{nomeInv(m.inv)}</b>
-            <b style={{ color: m.tipo === "resgate" ? P.vermelho : "#1F5FBF" }}>{m.tipo === "resgate" ? "−" : "+"}{v(m.valor || 0)}</b>
-            <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.id)} style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
-          </div>))}
+        <Cabeca titulo="💸 Aportes, resgates e transferências do mês"/>
+        {feitos.map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf" } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar} data="curta"/>)}
       </div>}
       <div style={{ fontSize:10.5, color:P.suave }}>{futuro || atual ? "Previsão com o CDI de hoje e as ações no preço atual. " : ""}Valores brutos (antes do imposto). Isto não é recomendação de investimento.</div>
     </div>
@@ -1862,19 +1878,24 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
   const it = itens.find(i => i.id === f.inv);
   const acao = it?.tipo === "acao";
   return (
-    <Janela titulo={plano ? "Planejar aporte ou resgate" : "Aporte ou resgate"} onFechar={onFechar}>
-      <Campo rotulo="INVESTIMENTO"><select value={f.inv} onChange={e => set({ inv:e.target.value })} style={campoSt}>
-        {itens.map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>
+    <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-        {[["aporte", acao ? "Compra" : "Aporte (colocou)"], ["resgate", acao ? "Venda" : "Resgate (tirou)"]].map(([k, t]) => (
-          <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px", fontFamily:FONT, fontSize:12.5, fontWeight:700, cursor:"pointer",
-            background: f.tipo === k ? (k === "aporte" ? "#1F5FBF" : P.vermelho) : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t}</button>))}
+        {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar", "#5B2BA6"]].map(([k, t, cor]) => (
+          <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px 4px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer",
+            background: f.tipo === k ? cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t}</button>))}
       </div>
+      <Campo rotulo={f.tipo === "transf" ? "SAIU DE" : "INVESTIMENTO"}><select value={f.inv} onChange={e => set({ inv:e.target.value })} style={campoSt}>
+        {itens.map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>
+      {f.tipo === "transf" && <Campo rotulo="FOI PARA" dica="O total investido não muda: o dinheiro só trocou de lugar.">
+        <select value={f.para || ""} onChange={e => set({ para:e.target.value })} style={campoSt}>
+          <option value="" disabled>Escolha…</option>
+          {itens.filter(i => i.id !== f.inv).map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>}
       <Campo rotulo="VALOR (R$)"><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
-      {acao && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      {acao && f.tipo !== "transf" && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
-      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(f.valorTxt) || !f.inv}
-        onClick={() => onSalvar(uid(), { kind: plano ? "plano" : "mov", inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt), qtd: acao ? parseInt(f.qtd) || 0 : 0, data:f.data || hojeStr() })}>Salvar</Btn></div>
+      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(f.valorTxt) || !f.inv || (f.tipo === "transf" && (!f.para || f.para === f.inv))}
+        onClick={() => onSalvar(f.id || uid(), { kind: plano ? "plano" : (f.kind || "mov"), inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt),
+          qtd: acao && f.tipo !== "transf" ? parseInt(f.qtd) || 0 : 0, para: f.tipo === "transf" ? f.para : "", data:f.data || hojeStr() })}>Salvar</Btn></div>
     </Janela>
   );
 }
