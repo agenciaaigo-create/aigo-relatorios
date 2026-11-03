@@ -11,7 +11,7 @@ const TOKEN = process.env.KV_REST_API_TOKEN || process.env.STORAGE_REST_API_TOKE
 const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", CLIENTES = "fin:clientes", INVEST = "fin:invest", ano = a => `fin:ano:${a}`;
 
 // Investimentos: { id: {...campos simples, upd, apagado} } (investimentos, movimentações e "_meta"). Vale a versão mais recente.
-const CAMPOS_TXT = ["nome", "instituicao", "tipo", "ticker", "dataBase", "inv", "data", "info", "kind", "mov"];
+const CAMPOS_TXT = ["nome", "instituicao", "tipo", "ticker", "dataBase", "inv", "data", "info", "kind", "mov", "para"];
 const CAMPOS_NUM = ["pct", "qtd", "custo", "saldo", "liq", "meta", "ord", "upd", "valor"];
 function juntarInvest(a = {}, b = {}) {
   const out = { ...a };
