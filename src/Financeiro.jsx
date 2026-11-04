@@ -1466,9 +1466,6 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 
       <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
 
-      <Calculadora patrimonioRF={linhas.filter(l => l.it.tipo !== "acao").reduce((t, l) => t + l.atual, 0)}
-        patrimonioRV={linhas.filter(l => l.it.tipo === "acao").reduce((t, l) => t + l.atual, 0)} taxaHoje={taxaHoje} meta={meta} v={v} oculto={oculto}/>
-
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
           {linhas.map(({ it, atual, liq, mes, dia, total }) => {
@@ -1520,6 +1517,9 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       ) : (
         <TabelaInvest itens={itens} onSalvar={onSalvar} onApagar={onApagar} onEditar={setForm}/>
       )}
+
+      <Calculadora patrimonioRF={linhas.filter(l => l.it.tipo !== "acao").reduce((t, l) => t + l.atual, 0)}
+        patrimonioRV={linhas.filter(l => l.it.tipo === "acao").reduce((t, l) => t + l.atual, 0)} taxaHoje={taxaHoje} meta={meta} v={v} oculto={oculto}/>
 
       <div className="fin-2col">
         <div style={caixaBloco}>
