@@ -1493,7 +1493,6 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
                   <span style={{ fontSize:10.5, color:P.suave }}>
                     {a ? <>Cotação {brl(a.preco)}{varDia != null && <b style={{ color: varDia >= 0 ? P.verde : P.vermelho }}> {pctFmt(varDia)} hoje</b>}</> : "cotação indisponível"}
                     {q ? ` · preço médio ${brl(custo / q)}` : ""}</span>
-                  <ComprasAcao it={it} movs={movs} v={v}/>
                 </>}
                 {it.tipo === "caixa" && <span style={{ fontSize:10.5, color:P.suave }}>parado na conta, esperando para investir</span>}
                 {it.tipo === "caixa" && <button onClick={() => setFormMov({ data:hoje, tipo:"transf", inv:it.id, para:"" })}
@@ -1574,31 +1573,6 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
 const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
   borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
-
-// Cantinho "Compras" do cartão de ação/FII: cada compra (e venda) com a data, cotas e preço pago por cota
-function ComprasAcao({ it, movs, v }) {
-  const [todas, setTodas] = useState(false);
-  const lista = [];
-  if ((it.qtd || 0) > 0 && (it.custo || 0) > 0) lista.push({ id:"base", data:it.dataBase, qtd:it.qtd, valor:it.custo, venda:false });
-  movs.filter(m => m.inv === it.id && depoisDaBase(m, it) && (m.qtd || 0) > 0)
-    .forEach(m => lista.push({ id:m.id, data:m.data, qtd:m.qtd, valor:m.valor || 0, venda: m.tipo === "resgate" }));
-  lista.sort((a, b) => b.data.localeCompare(a.data));
-  if (!lista.length) return null;
-  const vis = todas ? lista : lista.slice(0, 3);
-  return (
-    <div style={{ marginTop:6, background:"#F7F4FD", borderRadius:8, padding:"6px 8px" }}>
-      <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, marginBottom:2 }}>COMPRAS</div>
-      {vis.map(c => (
-        <div key={c.id} style={{ display:"flex", gap:6, fontSize:10.5, color:P.tinta, padding:"2px 0", alignItems:"baseline" }}>
-          <span style={{ color:P.suave, width:34, flex:"0 0 auto" }}>{dataBR(c.data).slice(0, 5)}</span>
-          <span style={{ flex:1 }}>{c.venda ? "vendeu " : ""}{c.qtd} cota{c.qtd > 1 ? "s" : ""} a <b>{v(c.valor / c.qtd)}</b></span>
-          <span style={{ color:P.suave, whiteSpace:"nowrap" }}>{v(c.valor)}</span>
-        </div>))}
-      {lista.length > 3 && <button onClick={() => setTodas(t => !t)} style={{ border:"none", background:"none", padding:0, fontFamily:FONT, fontSize:10.5, fontWeight:700, color:P.roxo, cursor:"pointer" }}>
-        {todas ? "ver menos" : `ver todas (${lista.length})`}</button>}
-    </div>
-  );
-}
 
 // Uma linha de aporte / resgate / transferência
 function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
