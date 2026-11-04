@@ -12,7 +12,7 @@ const ANOS = "fin:anos", APAGADOS = "fin:apagados", CORES = "fin:cores", CLIENTE
 
 // Investimentos: { id: {...campos simples, upd, apagado} } (investimentos, movimentações e "_meta"). Vale a versão mais recente.
 const CAMPOS_TXT = ["nome", "instituicao", "tipo", "ticker", "dataBase", "inv", "data", "info", "kind", "mov", "para"];
-const CAMPOS_NUM = ["pct", "qtd", "qtdDe", "custo", "saldo", "liq", "meta", "ord", "upd", "valor"];
+const CAMPOS_NUM = ["pct", "qtd", "qtdDe", "custo", "saldoEm", "saldo", "liq", "meta", "ord", "upd", "valor"];
 function juntarInvest(a = {}, b = {}) {
   const out = { ...a };
   for (const [id, v] of Object.entries(b || {})) {
