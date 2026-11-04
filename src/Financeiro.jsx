@@ -1608,7 +1608,7 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
   const iniRF = !comRF ? 0 : c.rfTxt === "" ? patrimonioRF : parseValor(c.rfTxt), iniRV = !comRV ? 0 : c.rvTxt === "" ? patrimonioRV : parseValor(c.rvTxt);
   const aporte = parseValor(c.aporteTxt), pRF = c.modo === "rf" ? 1 : c.modo === "rv" ? 0 : Math.max(0, Math.min(100, c.pctRF)) / 100;
   const sufixo = anual ? "/ano" : "/mês";
-  const taxaRF = c.taxaModo === "hoje" ? (taxaHoje || 10) : c.taxaModo === "conserv" ? 10 : n2(c.taxaTxt);
+  const taxaRF = c.taxaModo === "hoje" ? (taxaHoje || 10) : c.taxaModo === "conserv" ? 10 : c.taxaModo === "11" ? 11 : c.taxaModo === "12" ? 12 : n2(c.taxaTxt);
   const val = n2(c.valTxt), div = n2(c.divTxt), INFL = 4;
   const anos = Math.max(1, Math.min(40, Number(c.anos) || 1));
   const mes = a => Math.pow(1 + a / 100, 1 / 12) - 1;
@@ -1682,9 +1682,12 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
             <div><span style={rot}>RENDENDO</span>
               <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                 <button onClick={() => set({ taxaModo:"hoje" })} style={chip(c.taxaModo === "hoje")}>Como hoje {taxaHoje ? `(${taxaHoje.toFixed(1).replace(".", ",")}%)` : ""}</button>
-                <button onClick={() => set({ taxaModo:"conserv" })} style={chip(c.taxaModo === "conserv")}>10% a.a.</button>
+                {[["conserv", "10% a.a."], ["11", "11% a.a."], ["12", "12% a.a."]].map(([kk, t]) => <button key={kk} onClick={() => set({ taxaModo:kk })} style={chip(c.taxaModo === kk)}>{t}</button>)}
                 <button onClick={() => set({ taxaModo:"outra" })} style={chip(c.taxaModo === "outra")}>Outra</button>
               </div>
+              <span style={{ display:"block", fontSize:10.5, color:P.suave, marginTop:4 }}>{c.taxaModo === "hoje"
+                ? "CDI de hoje × o % das suas caixinhas. Alto para o longo prazo: o CDI costuma mudar."
+                : "Mais realista para o longo prazo (o CDI costuma ficar entre 9% e 11% ao ano, na média)."}</span>
               {c.taxaModo === "outra" && <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}><input value={c.taxaTxt} inputMode="decimal" onChange={e => set({ taxaTxt:e.target.value })} style={{ ...campo, width:80 }}/><span style={{ fontSize:12, color:P.suave }}>% ao ano</span></div>}
             </div>
           </div>
