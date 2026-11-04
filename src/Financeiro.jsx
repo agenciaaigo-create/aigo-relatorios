@@ -1234,6 +1234,8 @@ function fatorCDI(cdi, pct, d0, d1) {
   return f;
 }
 const sinal = m => m.tipo === "resgate" ? -1 : 1;
+// A movimentação conta para o investimento? (depois da data do saldo; no mesmo dia, só se foi lançada depois de você informar o saldo)
+const depoisDaBase = (m, it) => m.data > it.dataBase || (m.data === it.dataBase && (!it.saldoEm || (m.upd || 0) > it.saldoEm));
 // Transferência entre investimentos = saída de um + entrada no outro (não muda o total)
 const expandirTransf = arr => arr.flatMap(m => m.tipo === "transf" && m.para ? [
   { ...m, tipo:"resgate", qtd:m.qtdDe || 0, cotas:m.qtd || 0, transf:true, orig:m.id, id:m.id + "<" },          // qtdDe = cotas vendidas (se saiu de uma ação)
@@ -1249,7 +1251,7 @@ function precoEm(a, D) {
 // Valor de um investimento numa data (null se ainda não existia)
 function valorEm(it, movs, D, merc) {
   if (!it.dataBase || D < it.dataBase) return null;
-  const ms = movs.filter(m => m.inv === it.id && m.data > it.dataBase && m.data <= D);
+  const ms = movs.filter(m => m.inv === it.id && depoisDaBase(m, it) && m.data <= D);
   if (it.tipo === "cdi") return (it.saldo || 0) * fatorCDI(merc.cdi, it.pct, it.dataBase, D)
     + ms.reduce((t, m) => t + sinal(m) * (m.valor || 0) * fatorCDI(merc.cdi, it.pct, m.data, D), 0);
   if (it.tipo === "acao") {
@@ -1260,14 +1262,13 @@ function valorEm(it, movs, D, merc) {
   return (it.saldo || 0) + ms.reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
 }
 const baseDe = it => it.tipo === "acao" ? (it.custo || 0) : (it.saldo || 0);
-const liquido = (it, movs, de, ate) => movs.filter(m => m.inv === it.id && m.data > de && m.data <= ate && m.data > it.dataBase).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
+const liquido = (it, movs, de, ate) => movs.filter(m => m.inv === it.id && m.data > de && m.data <= ate && depoisDaBase(m, it)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
 // Quanto rendeu entre duas datas (desconta o que entrou e saiu)
 function rendeu(it, movs, de, ate, merc) {
   const v1 = valorEm(it, movs, ate, merc);
   if (v1 == null) return 0;
-  const ini = de >= it.dataBase ? de : it.dataBase;
   const v0 = de >= it.dataBase ? valorEm(it, movs, de, merc) : baseDe(it);
-  return v1 - v0 - liquido(it, movs, ini, ate);
+  return v1 - v0 - liquido(it, movs, de, ate);
 }
 // Imposto de renda da renda fixa (tabela regressiva), pelo tempo desde a data do saldo
 const aliquotaIR = dias => dias <= 180 ? .225 : dias <= 360 ? .20 : dias <= 720 ? .175 : .15;
@@ -1281,7 +1282,7 @@ function liquidoHoje(it, movs, merc) {
   const dias = Math.round((new Date(hoje + "T12:00:00") - new Date(it.dataBase + "T12:00:00")) / 86400000);
   return (it.liq || it.saldo || 0) + entrou + rend * (1 - aliquotaIR(dias));
 }
-function custoAcao(it, movs) { return (it.custo || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0); }
+function custoAcao(it, movs) { return (it.custo || 0) + movs.filter(m => m.inv === it.id && depoisDaBase(m, it)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0); }
 
 // Busca o CDI e as cotações (a cada 10 minutos com a aba aberta)
 function useMercado(tickers, desde) {
@@ -1465,7 +1466,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
           {linhas.map(({ it, atual, liq, mes, dia, total }) => {
             const t = TIPOS_INV[it.tipo] || TIPOS_INV.caixa, a = merc.acoes[it.ticker];
-            const q = it.tipo === "acao" ? (it.qtd || 0) + movs.filter(m => m.inv === it.id && m.data > it.dataBase).reduce((x, m) => x + sinal(m) * (m.qtd || 0), 0) : 0;
+            const q = it.tipo === "acao" ? (it.qtd || 0) + movs.filter(m => m.inv === it.id && depoisDaBase(m, it)).reduce((x, m) => x + sinal(m) * (m.qtd || 0), 0) : 0;
             const varDia = a && a.anterior ? (a.preco / a.anterior - 1) * 100 : null;
             const custo = it.tipo === "acao" ? custoAcao(it, movs) : 0;
             return (
@@ -1499,7 +1500,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
                   {it.tipo !== "acao" && <button onClick={() => {
                     const t2 = window.prompt(`Saldo BRUTO de hoje em "${it.nome}" (veja no app do banco):`, num(atual)); if (t2 == null) return;
                     const t3 = it.tipo === "cdi" ? window.prompt(`E o saldo LÍQUIDO de hoje? (opcional, deixe em branco se não souber)`, "") : "";
-                    onSalvar(it.id, { ...it, saldo: parseValor(t2), liq: t3 ? parseValor(t3) : 0, dataBase: hoje });
+                    onSalvar(it.id, { ...it, saldo: parseValor(t2), liq: t3 ? parseValor(t3) : 0, dataBase: hoje, saldoEm: Date.now() });
                     setMsg(`✅ Saldo de "${it.nome}" ajustado para ${brl(parseValor(t2))}${t3 ? ` (líquido ${brl(parseValor(t3))})` : ""}. Daqui para frente o site calcula o rendimento a partir dele.`);
                   }} style={mini}>Ajustar saldo</button>}
                   <button onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:it.id })} style={mini}>+ Aporte / resgate</button>
@@ -1842,7 +1843,8 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
   function salvar() {
     const valor = parseValor(f.saldoTxt);
     const x = { nome: f.nome.trim() || (f.tipo === "acao" ? f.ticker : TIPOS_INV[f.tipo].nome), instituicao: f.instituicao.trim(), tipo: f.tipo,
-      dataBase: f.dataBase || hojeStr(), meta: Number(f.meta) || 0, ord: f.ord || Date.now() };
+      dataBase: f.dataBase || hojeStr(), meta: Number(f.meta) || 0, ord: f.ord || Date.now(),
+      saldoEm: !f.id || parseValor(f.saldoTxt) !== (f.tipo === "acao" ? f.custo : f.saldo) || (f.dataBase || hojeStr()) !== inicial.dataBase ? Date.now() : (f.saldoEm || 0) };
     if (f.tipo === "cdi") Object.assign(x, { pct: Number(String(f.pct).replace(",", ".")) || 100, saldo: valor, liq: parseValor(f.liqTxt) || 0 });
     if (f.tipo === "acao") Object.assign(x, { ticker: (f.ticker || "").toUpperCase().trim(), custo: valor, qtd: parseInt(f.qtd) || sugestaoQtd || 0 });
     if (f.tipo === "caixa") Object.assign(x, { saldo: valor });
