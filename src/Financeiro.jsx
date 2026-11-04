@@ -1350,6 +1350,10 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   const aportesMes = movs.filter(m => m.data.startsWith(mesAtual)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
   const cdiAno = merc.cdi.ultima ? (Math.pow(1 + merc.cdi.ultima / 100, 252) - 1) * 100 : 0;
   const proj12 = linhas.reduce((t, l) => t + (l.it.tipo === "cdi" ? l.atual * Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) : l.atual), 0);
+  // taxa média de hoje das caixinhas (CDI × % de cada uma, ponderado pelo saldo), ao ano
+  const baseCdi = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l.atual, 0);
+  const taxaHoje = baseCdi && merc.cdi.ultima ? linhas.filter(l => l.it.tipo === "cdi")
+    .reduce((t, l) => t + l.atual * (Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) - 1), 0) / baseCdi * 100 : 0;
   const rendMensalCdi = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l.atual * (Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 21) - 1), 0);
 
   // evolução: fim de cada mês desde o primeiro investimento (até 12) + hoje
@@ -1461,6 +1465,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       </div>
 
       <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
+
+      <Calculadora patrimonio={patrimonio} taxaHoje={taxaHoje} meta={meta} v={v} oculto={oculto}/>
 
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
@@ -1582,6 +1588,107 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
       {!tr && m.tipo === "resgate" && onTransformar && <button onClick={() => onTransformar(m)} title="Na verdade o dinheiro foi para outro investimento"
         style={{ ...mini, padding:"2px 7px" }}>↔ foi transferência?</button>}
       <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.orig || m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+    </div>
+  );
+}
+
+// ── 🧮 Calculadora de patrimônio: quanto você terá investindo todo mês ──
+function Calculadora({ patrimonio, taxaHoje, meta, v, oculto }) {
+  const lerC = () => { try { return JSON.parse(localStorage.getItem("aigo-fin-calc") || "{}"); } catch { return {}; } };
+  const [c, setC] = useState(() => ({ inicialTxt:"", aporteTxt:"500", anos:10, taxaModo:"hoje", taxaTxt:"10", reajuste:0, inflacao:false, ...lerC() }));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-calc", JSON.stringify(c)); } catch {} }, [c]);
+  const set = p => setC(x => ({ ...x, ...p }));
+  const inicial = c.inicialTxt === "" ? patrimonio : parseValor(c.inicialTxt);
+  const aporte = parseValor(c.aporteTxt);
+  const taxa = c.taxaModo === "hoje" ? (taxaHoje || 10) : c.taxaModo === "conserv" ? 10 : (Number(String(c.taxaTxt).replace(",", ".")) || 0);
+  const INFL = 4;
+  const anos = Math.max(1, Math.min(40, Number(c.anos) || 1));
+  // mês a mês: rende e entra o aporte; o aporte sobe c.reajuste% a cada ano
+  const r = Math.pow(1 + taxa / 100, 1 / 12) - 1, ri = Math.pow(1 + INFL / 100, 1 / 12) - 1;
+  const pontos = [{ ano:0, total:inicial, investido:inicial }];
+  let total = inicial, investido = inicial, ap = aporte, deflator = 1, mesMeta = null;
+  for (let m = 1; m <= anos * 12; m++) {
+    total = total * (1 + r) + ap; investido += ap; deflator *= 1 + ri;
+    if (meta && mesMeta == null && (c.inflacao ? total / deflator : total) >= meta) mesMeta = m;
+    if (m % 12 === 0) { pontos.push({ ano:m / 12, total: c.inflacao ? total / deflator : total, investido: c.inflacao ? investido / deflator : investido }); ap *= 1 + (c.reajuste || 0) / 100; }
+  }
+  const fim = pontos[pontos.length - 1], juros = fim.total - fim.investido;
+  const rendaMensal = fim.total * (Math.pow(1 + (taxa - (c.inflacao ? INFL : 0)) / 100, 1 / 12) - 1);
+  const W = 1000, H = 220, pl = 58, pr = 16, pt = 18, pb = 26, n = pontos.length, bw = (W - pl - pr) / n;
+  const mx = Math.max(1, ...pontos.map(p => p.total)) * 1.08;
+  const y = val => H - pb - val / mx * (H - pb - pt);
+  const passo = (() => { const bruto = mx / 4, e = Math.pow(10, Math.floor(Math.log10(bruto))); return [1, 2, 2.5, 5, 10].map(k => k * e).find(k => k >= bruto); })();
+  const k = x => x >= 1e6 ? `${(x / 1e6).toFixed(1).replace(".", ",")} mi` : x >= 1000 ? `${Math.round(x / 1000)} mil` : String(Math.round(x));
+  const campo = { width:"100%", boxSizing:"border-box", border:`1px solid ${P.lilas}`, borderRadius:9, padding:"8px 10px", fontFamily:FONT, fontSize:14, color:P.tinta, background:P.papel };
+  const rot = { display:"block", fontSize:10.5, fontWeight:800, color:P.suave, marginBottom:4, letterSpacing:".04em" };
+  const chip = on => ({ border:"none", borderRadius:999, padding:"5px 10px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer",
+    background: on ? P.roxo : P.lilasClaro, color: on ? "#fff" : P.suave });
+  const tempo = m => { const a = Math.floor(m / 12), mm = m % 12; return [a ? `${a} ano${a > 1 ? "s" : ""}` : "", mm ? `${mm} ${mm > 1 ? "meses" : "mês"}` : ""].filter(Boolean).join(" e "); };
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="🧮 Calculadora de patrimônio" sub="simule quanto você terá investindo todo mês"/>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12, padding:"14px 16px", borderBottom:`1px solid ${P.linha}` }}>
+        <label><span style={rot}>COMEÇANDO COM (R$)</span>
+          <input value={c.inicialTxt} inputMode="decimal" onChange={e => set({ inicialTxt:e.target.value })} placeholder={num(patrimonio)} style={campo}/>
+          <span style={{ fontSize:10.5, color:P.suave }}>{c.inicialTxt === "" ? "seu patrimônio de hoje" : <button onClick={() => set({ inicialTxt:"" })} style={{ border:"none", background:"none", color:P.roxo, padding:0, fontFamily:FONT, fontSize:10.5, cursor:"pointer", fontWeight:700 }}>usar o de hoje</button>}</span></label>
+        <label><span style={rot}>INVESTINDO POR MÊS (R$)</span>
+          <input value={c.aporteTxt} inputMode="decimal" onChange={e => set({ aporteTxt:e.target.value })} placeholder="500,00" style={campo}/></label>
+        <label><span style={rot}>POR QUANTO TEMPO: {anos} ANO{anos > 1 ? "S" : ""}</span>
+          <input type="range" min="1" max="40" value={anos} onChange={e => set({ anos:+e.target.value })} style={{ width:"100%", accentColor:P.roxo, marginTop:8 }}/>
+          <div style={{ display:"flex", gap:4, marginTop:2 }}>{[5, 10, 20, 30].map(a => <button key={a} onClick={() => set({ anos:a })} style={{ ...chip(anos === a), padding:"2px 8px", fontSize:10.5 }}>{a}a</button>)}</div></label>
+        <div><span style={rot}>RENDENDO</span>
+          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+            <button onClick={() => set({ taxaModo:"hoje" })} style={chip(c.taxaModo === "hoje")}>Como hoje {taxaHoje ? `(${taxaHoje.toFixed(1).replace(".", ",")}%)` : ""}</button>
+            <button onClick={() => set({ taxaModo:"conserv" })} style={chip(c.taxaModo === "conserv")}>10% ao ano</button>
+            <button onClick={() => set({ taxaModo:"outra" })} style={chip(c.taxaModo === "outra")}>Outra</button>
+          </div>
+          {c.taxaModo === "outra" && <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}><input value={c.taxaTxt} inputMode="decimal" onChange={e => set({ taxaTxt:e.target.value })} style={{ ...campo, width:80 }}/><span style={{ fontSize:12, color:P.suave }}>% ao ano</span></div>}
+        </div>
+        <div><span style={rot}>EXTRAS</span>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, marginBottom:6 }}>Aumentar o aporte
+            <select value={c.reajuste} onChange={e => set({ reajuste:+e.target.value })} style={{ ...campo, width:"auto", padding:"4px 6px", fontSize:12 }}>
+              {[0, 5, 10].map(x => <option key={x} value={x}>{x ? `${x}% por ano` : "não"}</option>)}</select></label>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, cursor:"pointer" }}>
+            <input type="checkbox" checked={c.inflacao} onChange={e => set({ inflacao:e.target.checked })} style={{ accentColor:P.roxo }}/>Em dinheiro de hoje (desconta inflação de {INFL}%)</label>
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:0, borderBottom:`1px solid ${P.linha}` }}>
+        {[["Você terá", v(fim.total), P.roxo, `daqui a ${anos} ano${anos > 1 ? "s" : ""}`],
+          ["Você investiu", v(fim.investido), P.tinta, `${v(inicial)} + ${v(aporte)}/mês${c.reajuste ? ` (+${c.reajuste}%/ano)` : ""}`],
+          ["Os juros fizeram", v(juros), P.verde, fim.total ? `${Math.round(juros / fim.total * 100)}% do total` : ""],
+          ["Renda por mês no fim", v(rendaMensal), "#8A6500", "só com o rendimento, sem mexer no valor"]].map(([l, val, cor, sub], i) => (
+          <div key={l} style={{ padding:"12px 16px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
+            <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+            <div style={{ fontSize:21, fontWeight:900, color:cor, marginTop:2 }}>{val}</div>
+            <div style={{ fontSize:10.5, color:P.suave }}>{sub}</div>
+          </div>))}
+      </div>
+      {meta > 0 && <div style={{ padding:"10px 16px 0", fontSize:12.5, fontWeight:700, color: mesMeta ? P.roxo : P.suave }}>
+        🎯 {mesMeta ? `Assim, você chega na sua meta de ${v(meta)} em ${tempo(mesMeta)}.` : `Nesse ritmo, a meta de ${v(meta)} não é alcançada em ${anos} anos.`}</div>}
+      <div style={{ display:"flex", gap:14, fontSize:10.5, fontWeight:700, color:P.suave, padding:"10px 16px 0" }}>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:"#C9BCF0", marginRight:4 }}/>Você investiu</span>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:"#1E9E4A", marginRight:4 }}/>Juros</span>
+      </div>
+      <div style={{ padding:"4px 12px 8px" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Simulação do patrimônio ano a ano">
+          {Array.from({ length: Math.floor(mx / passo) + 1 }, (_, i) => i * passo).map(g => <g key={g}>
+            <line x1={pl} x2={W - pr} y1={y(g)} y2={y(g)} stroke="#ECE8F5"/>
+            <text x={pl - 6} y={y(g) + 3} textAnchor="end" fontSize="10" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{oculto ? "‑‑‑" : k(g)}</text></g>)}
+          {pontos.map((p, i) => {
+            const x = pl + i * bw + bw * .18, w = bw * .64, j = Math.max(0, p.total - p.investido);
+            const mostrar = n <= 12 || i % Math.ceil(n / 12) === 0 || i === n - 1;
+            return <g key={p.ano}>
+              <rect x={x} y={y(p.investido)} width={w} height={H - pb - y(p.investido)} rx="2" fill="#C9BCF0"/>
+              {j > 0 && <rect x={x} y={y(p.total)} width={w} height={Math.max(0, y(p.investido) - y(p.total) - 1)} rx="2" fill="#1E9E4A"/>}
+              <title>{`Ano ${p.ano}: ${brl(p.total)} (investiu ${brl(p.investido)}, juros ${brl(j)})`}</title>
+              {mostrar && <text x={x + w / 2} y={H - 8} textAnchor="middle" fontSize="10.5" fontWeight={i === n - 1 ? 800 : 600} fill={i === n - 1 ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{p.ano === 0 ? "hoje" : `${p.ano}a`}</text>}
+              {i === n - 1 && !oculto && <text x={Math.min(x + w / 2, W - pr - 2)} y={y(p.total) - 6} textAnchor="end" fontSize="11.5" fontWeight="800" fill={P.tinta} fontFamily="Montserrat, sans-serif">{k(p.total)}</text>}
+            </g>;
+          })}
+        </svg>
+      </div>
+      <div style={{ padding:"0 16px 12px", fontSize:10.5, color:P.suave, lineHeight:1.5 }}>
+        Simulação com juros compostos todo mês, antes do imposto de renda. {c.taxaModo === "hoje" ? "“Como hoje” usa o CDI de hoje e o % das suas caixinhas; no longo prazo o CDI costuma mudar. " : ""}Isto não é recomendação de investimento.</div>
     </div>
   );
 }
