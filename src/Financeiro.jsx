@@ -1423,9 +1423,9 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
           <div style={{ fontSize:12, marginTop:2 }}>Líquido <b style={{ color:P.roxo }}>{v(patrimonioLiq)}</b></div>
           <div style={{ fontSize:10.5, color:P.suave }}>{semLiq ? `${semLiq} caixinha${semLiq > 1 ? "s" : ""} sem o líquido informado` : `bruto · ${itens.length} investimento${itens.length > 1 ? "s" : ""}`}</div></div>
         <div style={caixaK}><div style={rotK}>Rendeu este mês</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendMes >= 0 ? P.verde : P.vermelho }}>{vs(rendMes)}</div>
-          <div style={{ fontSize:11, color:P.suave }}>{aportesMes ? `aportes do mês: ${v(aportesMes)}` : "sem aportes este mês"}</div></div>
+          <DivisaoRend linhas={linhas} k="mes" vs={vs}/></div>
         <div style={caixaK}><div style={rotK}>Hoje</div><div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rendDia >= 0 ? P.verde : P.vermelho }}>{vs(rendDia)}</div>
-          <div style={{ fontSize:11, color:P.suave }}>caixinhas + variação das ações</div></div>
+          <DivisaoRend linhas={linhas} k="dia" vs={vs}/></div>
         <button onClick={() => { const t = window.prompt("Meta de patrimônio (R$):", meta ? num(meta) : ""); if (t != null) onSalvar("_meta", { valor: parseValor(t) }); }}
           style={{ ...caixaK, textAlign:"left", cursor:"pointer", fontFamily:FONT }}>
           <div style={rotK}>🎯 Meta {meta ? "" : "— definir"}</div>
@@ -1573,6 +1573,23 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
 const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
   borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
+
+// Divisão do rendimento nos cards do topo: caixinhas × ações e FIIs
+function DivisaoRend({ linhas, k, vs }) {
+  const rf = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l[k], 0);
+  const rv = linhas.filter(l => l.it.tipo === "acao").reduce((t, l) => t + l[k], 0);
+  const temRV = linhas.some(l => l.it.tipo === "acao"), temRF = linhas.some(l => l.it.tipo === "cdi");
+  const linha = (cor, nome, val) => (
+    <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, marginTop:3 }}>
+      <i style={{ width:8, height:8, borderRadius:"50%", background:cor, flex:"0 0 auto" }}/>
+      <span style={{ color:P.suave }}>{nome}</span>
+      <b style={{ marginLeft:"auto", color: val >= 0 ? P.verde : P.vermelho }}>{vs(val)}</b>
+    </div>);
+  return <div style={{ marginTop:4 }}>
+    {temRF && linha(TIPOS_INV.cdi.cor, "caixinhas", rf)}
+    {temRV && linha(TIPOS_INV.acao.cor, "ações e FIIs", rv)}
+  </div>;
+}
 
 // Uma linha de aporte / resgate / transferência
 function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
