@@ -280,6 +280,7 @@ function parseValor(v) {
   if (typeof v === "number") return Math.abs(v);
   let s = String(v || "").replace(/[^\d,.-]/g, "");
   if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");   // "35.000" ou "1.500.000" = milhar, não centavos
   const n = parseFloat(s);
   return isNaN(n) ? 0 : Math.abs(n);
 }
@@ -1613,11 +1614,11 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
   const mes = a => Math.pow(1 + a / 100, 1 / 12) - 1;
   const rRF = mes(taxaRF), rVal = mes(val), rDiv = mes(div), ri = mes(INFL);
   // mês a mês. Ações/FIIs: o preço sobe pela valorização; os rendimentos (dividendos) são reinvestidos ou guardados à parte
-  let rf = iniRF, rv = iniRV, guardado = 0, invRF = iniRF, invRV = iniRV, ap = aporte, defl = 1, mesMeta = null;
+  let rf = iniRF, rv = iniRV, guardado = 0, invRF = iniRF, invRV = iniRV, ap = aporte, defl = 1, mesMeta = null, invNom = iniRF + iniRV;
   const pts = [{ ano:0, rf, rv, invRF, invRV, guardado }];
   for (let m = 1; m <= anos * 12; m++) {
     const a = anual ? (m % 12 === 1 ? ap : 0) : ap;   // aporte anual: entra no 1º mês de cada ano
-    rf = rf * (1 + rRF) + a * pRF; invRF += a * pRF;
+    rf = rf * (1 + rRF) + a * pRF; invRF += a * pRF; invNom += a;
     const dv = rv * rDiv;
     rv = rv * (1 + rVal) + a * (1 - pRF) + (c.reinvestir ? dv : 0); invRV += a * (1 - pRF);
     if (!c.reinvestir) guardado += dv;
@@ -1705,7 +1706,7 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", borderBottom:`1px solid ${P.linha}` }}>
         {[["Você terá", v(total), P.roxo, c.modo === "ambos" ? `renda fixa ${v(fim.rf)} · ações/FIIs ${v(fim.rv + fim.guardado)}` : `daqui a ${anos} ano${anos > 1 ? "s" : ""}`],
-          ["Você investiu", v(investido), P.tinta, `${v(iniRF + iniRV)} + ${v(aporte)}${sufixo}`],
+          ["Você investiu", v(investido), P.tinta, c.inflacao ? `em dinheiro de hoje · sem descontar a inflação: ${v(invNom)}` : `${v(iniRF + iniRV)} + ${v(aporte)}${sufixo}`],
           ["Rendimentos", v(ganhoRF + ganhoRV), P.verde, c.modo === "ambos" ? `renda fixa ${v(ganhoRF)} · ações/FIIs ${v(ganhoRV)}` : investido ? `${Math.round((ganhoRF + ganhoRV) / total * 100)}% do total` : ""],
           ["Renda por mês no fim", v(rendaMensal), "#8A6500", c.modo === "rf" ? "só com os juros, sem mexer no valor" : c.modo === "rv" ? "rendimentos dos FIIs/ações" : "juros da renda fixa + rendimentos dos FIIs/ações"]].map(([l, val2, cor, sub], i) => (
           <div key={l} style={{ padding:"12px 16px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
