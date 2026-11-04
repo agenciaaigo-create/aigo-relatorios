@@ -1597,12 +1597,15 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
 function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) {
   const lerC = () => { try { return JSON.parse(localStorage.getItem("aigo-fin-calc2") || "{}"); } catch { return {}; } };
   const [c, setC] = useState(() => ({ rfTxt:"", rvTxt:"", aporteTxt:"500", pctRF:70, anos:10, taxaModo:"hoje", taxaTxt:"10",
-    valTxt:"6", divTxt:"8", reinvestir:true, reajuste:0, inflacao:false, ...lerC() }));
+    valTxt:"6", divTxt:"8", reinvestir:true, reajuste:0, inflacao:false, modo:"ambos", freq:"mes", ...lerC() }));
   useEffect(() => { try { localStorage.setItem("aigo-fin-calc2", JSON.stringify(c)); } catch {} }, [c]);
   const set = p => setC(x => ({ ...x, ...p }));
   const n2 = t => Number(String(t).replace(",", ".")) || 0;
-  const iniRF = c.rfTxt === "" ? patrimonioRF : parseValor(c.rfTxt), iniRV = c.rvTxt === "" ? patrimonioRV : parseValor(c.rvTxt);
-  const aporte = parseValor(c.aporteTxt), pRF = Math.max(0, Math.min(100, c.pctRF)) / 100;
+  // modo: "ambos" (tudo junto), "rf" (só renda fixa) ou "rv" (só ações e FIIs); freq: aporte "mes" (todo mês) ou "ano" (uma vez por ano)
+  const comRF = c.modo !== "rv", comRV = c.modo !== "rf", anual = c.freq === "ano";
+  const iniRF = !comRF ? 0 : c.rfTxt === "" ? patrimonioRF : parseValor(c.rfTxt), iniRV = !comRV ? 0 : c.rvTxt === "" ? patrimonioRV : parseValor(c.rvTxt);
+  const aporte = parseValor(c.aporteTxt), pRF = c.modo === "rf" ? 1 : c.modo === "rv" ? 0 : Math.max(0, Math.min(100, c.pctRF)) / 100;
+  const sufixo = anual ? "/ano" : "/mês";
   const taxaRF = c.taxaModo === "hoje" ? (taxaHoje || 10) : c.taxaModo === "conserv" ? 10 : n2(c.taxaTxt);
   const val = n2(c.valTxt), div = n2(c.divTxt), INFL = 4;
   const anos = Math.max(1, Math.min(40, Number(c.anos) || 1));
@@ -1612,9 +1615,10 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
   let rf = iniRF, rv = iniRV, guardado = 0, invRF = iniRF, invRV = iniRV, ap = aporte, defl = 1, mesMeta = null;
   const pts = [{ ano:0, rf, rv, invRF, invRV, guardado }];
   for (let m = 1; m <= anos * 12; m++) {
-    rf = rf * (1 + rRF) + ap * pRF; invRF += ap * pRF;
+    const a = anual ? (m % 12 === 1 ? ap : 0) : ap;   // aporte anual: entra no 1º mês de cada ano
+    rf = rf * (1 + rRF) + a * pRF; invRF += a * pRF;
     const dv = rv * rDiv;
-    rv = rv * (1 + rVal) + ap * (1 - pRF) + (c.reinvestir ? dv : 0); invRV += ap * (1 - pRF);
+    rv = rv * (1 + rVal) + a * (1 - pRF) + (c.reinvestir ? dv : 0); invRV += a * (1 - pRF);
     if (!c.reinvestir) guardado += dv;
     defl *= 1 + ri;
     const tot = (rf + rv + guardado) / (c.inflacao ? defl : 1);
@@ -1644,12 +1648,19 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
     <i style={{ width:10, height:10, borderRadius:3, background:cor }}/>{t}</div>;
   return (
     <div style={caixaBloco}>
-      <Cabeca titulo="🧮 Calculadora de patrimônio" sub="simule quanto você terá investindo todo mês"/>
+      <Cabeca titulo="🧮 Calculadora de patrimônio" sub="simule quanto você terá investindo a longo prazo"/>
+      <div style={{ ...sec, display:"flex", gap:16, flexWrap:"wrap", alignItems:"center" }}>
+        <div><span style={rot}>SIMULAR</span><div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+          {[["ambos", "Tudo junto"], ["rf", "Só renda fixa"], ["rv", "Só ações e FIIs"]].map(([kk, t]) => <button key={kk} onClick={() => set({ modo:kk })} style={chip(c.modo === kk)}>{t}</button>)}</div></div>
+        <div><span style={rot}>VOU INVESTIR</span><div style={{ display:"flex", gap:4 }}>
+          {[["mes", "Todo mês"], ["ano", "Uma vez por ano"]].map(([kk, t]) => <button key={kk} onClick={() => set({ freq:kk })} style={chip(c.freq === kk)}>{t}</button>)}</div></div>
+      </div>
       <div style={sec}><div style={grade}>
-        <label><span style={rot}>INVESTINDO POR MÊS (R$)</span><input value={c.aporteTxt} inputMode="decimal" onChange={e => set({ aporteTxt:e.target.value })} placeholder="500,00" style={campo}/></label>
-        <label><span style={rot}>DIVISÃO DO APORTE: {Math.round(pRF * 100)}% RENDA FIXA · {100 - Math.round(pRF * 100)}% AÇÕES/FIIs</span>
+        <label><span style={rot}>INVESTINDO {anual ? "POR ANO" : "POR MÊS"} (R$)</span><input value={c.aporteTxt} inputMode="decimal" onChange={e => set({ aporteTxt:e.target.value })} placeholder={anual ? "6.000,00" : "500,00"} style={campo}/>
+          {anual && <span style={{ fontSize:10.5, color:P.suave }}>entra uma vez no começo de cada ano (≈ {v(aporte / 12)}/mês)</span>}</label>
+        {c.modo === "ambos" && <label><span style={rot}>DIVISÃO DO APORTE: {Math.round(pRF * 100)}% RENDA FIXA · {100 - Math.round(pRF * 100)}% AÇÕES/FIIs</span>
           <input type="range" min="0" max="100" step="5" value={c.pctRF} onChange={e => set({ pctRF:+e.target.value })} style={{ width:"100%", accentColor:P.roxo, marginTop:8 }}/>
-          <span style={{ fontSize:10.5, color:P.suave }}>{v(aporte * pRF)} renda fixa · {v(aporte * (1 - pRF))} ações/FIIs</span></label>
+          <span style={{ fontSize:10.5, color:P.suave }}>{v(aporte * pRF)} renda fixa · {v(aporte * (1 - pRF))} ações/FIIs{sufixo}</span></label>}
         <label><span style={rot}>POR QUANTO TEMPO: {anos} ANO{anos > 1 ? "S" : ""}</span>
           <input type="range" min="1" max="40" value={anos} onChange={e => set({ anos:+e.target.value })} style={{ width:"100%", accentColor:P.roxo, marginTop:8 }}/>
           <div style={{ display:"flex", gap:4, marginTop:2 }}>{[5, 10, 20, 30].map(a => <button key={a} onClick={() => set({ anos:a })} style={{ ...chip(anos === a), padding:"2px 8px", fontSize:10.5 }}>{a}a</button>)}</div></label>
@@ -1661,7 +1672,7 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
         </div>
       </div></div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))" }}>
-        <div style={{ ...sec, borderRight:`1px solid ${P.linha}` }}>
+        {comRF && <div style={{ ...sec, borderRight: comRV ? `1px solid ${P.linha}` : "none" }}>
           {tituloSec("Renda fixa (caixinhas, CDB, Tesouro)", COR.rf)}
           <div style={grade}>
             <label><span style={rot}>COMEÇANDO COM (R$)</span><input value={c.rfTxt} inputMode="decimal" onChange={e => set({ rfTxt:e.target.value })} placeholder={num(patrimonioRF)} style={campo}/>
@@ -1675,8 +1686,8 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
               {c.taxaModo === "outra" && <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}><input value={c.taxaTxt} inputMode="decimal" onChange={e => set({ taxaTxt:e.target.value })} style={{ ...campo, width:80 }}/><span style={{ fontSize:12, color:P.suave }}>% ao ano</span></div>}
             </div>
           </div>
-        </div>
-        <div style={sec}>
+        </div>}
+        {comRV && <div style={sec}>
           {tituloSec("Ações e FIIs", COR.rv)}
           <div style={grade}>
             <label><span style={rot}>COMEÇANDO COM (R$)</span><input value={c.rvTxt} inputMode="decimal" onChange={e => set({ rvTxt:e.target.value })} placeholder={num(patrimonioRV)} style={campo}/>
@@ -1689,13 +1700,13 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
           <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, cursor:"pointer", marginTop:8 }}>
             <input type="checkbox" checked={c.reinvestir} onChange={e => set({ reinvestir:e.target.checked })} style={{ accentColor:P.roxo }}/>Reinvestir os rendimentos (dividendos dos FIIs e ações)</label>
           <div style={{ fontSize:10.5, color:P.suave, marginTop:4 }}>Valorização = quanto o preço sobe. Rendimentos = o que os FIIs e as ações pagam (FIIs costumam pagar perto de 0,7% a 1% ao mês). Os dois variam: são uma estimativa sua.</div>
-        </div>
+        </div>}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", borderBottom:`1px solid ${P.linha}` }}>
-        {[["Você terá", v(total), P.roxo, `renda fixa ${v(fim.rf)} · ações/FIIs ${v(fim.rv + fim.guardado)}`],
-          ["Você investiu", v(investido), P.tinta, `daqui a ${anos} ano${anos > 1 ? "s" : ""}`],
-          ["Rendimentos", v(ganhoRF + ganhoRV), P.verde, `renda fixa ${v(ganhoRF)} · ações/FIIs ${v(ganhoRV)}`],
-          ["Renda por mês no fim", v(rendaMensal), "#8A6500", "juros da renda fixa + rendimentos dos FIIs/ações"]].map(([l, val2, cor, sub], i) => (
+        {[["Você terá", v(total), P.roxo, c.modo === "ambos" ? `renda fixa ${v(fim.rf)} · ações/FIIs ${v(fim.rv + fim.guardado)}` : `daqui a ${anos} ano${anos > 1 ? "s" : ""}`],
+          ["Você investiu", v(investido), P.tinta, `${v(iniRF + iniRV)} + ${v(aporte)}${sufixo}`],
+          ["Rendimentos", v(ganhoRF + ganhoRV), P.verde, c.modo === "ambos" ? `renda fixa ${v(ganhoRF)} · ações/FIIs ${v(ganhoRV)}` : investido ? `${Math.round((ganhoRF + ganhoRV) / total * 100)}% do total` : ""],
+          ["Renda por mês no fim", v(rendaMensal), "#8A6500", c.modo === "rf" ? "só com os juros, sem mexer no valor" : c.modo === "rv" ? "rendimentos dos FIIs/ações" : "juros da renda fixa + rendimentos dos FIIs/ações"]].map(([l, val2, cor, sub], i) => (
           <div key={l} style={{ padding:"12px 16px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
             <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
             <div style={{ fontSize:21, fontWeight:900, color:cor, marginTop:2 }}>{val2}</div>
@@ -1706,8 +1717,8 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
         🎯 {mesMeta ? `Assim, você chega na sua meta de ${v(meta)} em ${tempo(mesMeta)}.` : `Nesse ritmo, a meta de ${v(meta)} não é alcançada em ${anos} anos.`}</div>}
       <div style={{ display:"flex", gap:14, fontSize:10.5, fontWeight:700, color:P.suave, padding:"10px 16px 0", flexWrap:"wrap" }}>
         <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.inv, marginRight:4 }}/>Você investiu</span>
-        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rf, marginRight:4 }}/>Rendeu na renda fixa</span>
-        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rv, marginRight:4 }}/>Rendeu em ações/FIIs</span>
+        {comRF && <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rf, marginRight:4 }}/>Rendeu na renda fixa</span>}
+        {comRV && <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rv, marginRight:4 }}/>Rendeu em ações/FIIs</span>}
       </div>
       <div style={{ padding:"4px 12px 8px" }}>
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Simulação do patrimônio ano a ano">
