@@ -1464,7 +1464,6 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         <EvolucaoInvest serie={serie} oculto={oculto}/>
       </div>
 
-      <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
 
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
@@ -1517,6 +1516,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       ) : (
         <TabelaInvest itens={itens} onSalvar={onSalvar} onApagar={onApagar} onEditar={setForm}/>
       )}
+
+      <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
 
       <Calculadora patrimonioRF={linhas.filter(l => l.it.tipo !== "acao").reduce((t, l) => t + l.atual, 0)}
         patrimonioRV={linhas.filter(l => l.it.tipo === "acao").reduce((t, l) => t + l.atual, 0)} taxaHoje={taxaHoje} meta={meta} v={v} oculto={oculto}/>
@@ -1648,7 +1649,7 @@ function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) 
     <i style={{ width:10, height:10, borderRadius:3, background:cor }}/>{t}</div>;
   return (
     <div style={caixaBloco}>
-      <Cabeca titulo="🧮 Calculadora de patrimônio" sub="simule quanto você terá investindo a longo prazo"/>
+      <Cabeca titulo={<span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><IconeCalc/>Calculadora de patrimônio</span>} sub="simule quanto você terá investindo a longo prazo"/>
       <div style={{ ...sec, display:"flex", gap:16, flexWrap:"wrap", alignItems:"center" }}>
         <div><span style={rot}>SIMULAR</span><div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
           {[["ambos", "Tudo junto"], ["rf", "Só renda fixa"], ["rv", "Só ações e FIIs"]].map(([kk, t]) => <button key={kk} onClick={() => set({ modo:kk })} style={chip(c.modo === kk)}>{t}</button>)}</div></div>
@@ -3154,6 +3155,17 @@ function FinanceiroApp({ senha, sair }) {
       {painelCores && <PainelCores espacoInicial={espaco} cores={cores} onCor={escolherCor} onVoltar={voltarCores} onFechar={() => setPainelCores(false)}/>}
     </div>
     </CoresCtx.Provider></OcultarCtx.Provider>
+  );
+}
+
+// Ícone de calculadora (traço fino)
+function IconeCalc() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="2.5" width="16" height="19" rx="2.5"/><line x1="8" y1="7" x2="16" y2="7"/>
+      <line x1="8" y1="12" x2="8.01" y2="12"/><line x1="12" y1="12" x2="12.01" y2="12"/><line x1="16" y1="12" x2="16.01" y2="12"/>
+      <line x1="8" y1="16.5" x2="8.01" y2="16.5"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/><line x1="16" y1="16.5" x2="16.01" y2="16.5"/>
+    </svg>
   );
 }
 
