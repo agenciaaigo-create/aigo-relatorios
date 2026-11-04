@@ -1350,6 +1350,10 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   const aportesMes = movs.filter(m => m.data.startsWith(mesAtual)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0);
   const cdiAno = merc.cdi.ultima ? (Math.pow(1 + merc.cdi.ultima / 100, 252) - 1) * 100 : 0;
   const proj12 = linhas.reduce((t, l) => t + (l.it.tipo === "cdi" ? l.atual * Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) : l.atual), 0);
+  // taxa média de hoje das caixinhas (CDI × % de cada uma, ponderado pelo saldo), ao ano
+  const baseCdi = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l.atual, 0);
+  const taxaHoje = baseCdi && merc.cdi.ultima ? linhas.filter(l => l.it.tipo === "cdi")
+    .reduce((t, l) => t + l.atual * (Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 252) - 1), 0) / baseCdi * 100 : 0;
   const rendMensalCdi = linhas.filter(l => l.it.tipo === "cdi").reduce((t, l) => t + l.atual * (Math.pow(1 + merc.cdi.ultima / 100 * (l.it.pct || 0) / 100, 21) - 1), 0);
 
   // evolução: fim de cada mês desde o primeiro investimento (até 12) + hoje
@@ -1461,6 +1465,9 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       </div>
 
       <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
+
+      <Calculadora patrimonioRF={linhas.filter(l => l.it.tipo !== "acao").reduce((t, l) => t + l.atual, 0)}
+        patrimonioRV={linhas.filter(l => l.it.tipo === "acao").reduce((t, l) => t + l.atual, 0)} taxaHoje={taxaHoje} meta={meta} v={v} oculto={oculto}/>
 
       {vista === "cartoes" ? (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
@@ -1582,6 +1589,149 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
       {!tr && m.tipo === "resgate" && onTransformar && <button onClick={() => onTransformar(m)} title="Na verdade o dinheiro foi para outro investimento"
         style={{ ...mini, padding:"2px 7px" }}>↔ foi transferência?</button>}
       <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.orig || m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
+    </div>
+  );
+}
+
+// ── 🧮 Calculadora de patrimônio: quanto você terá investindo todo mês ──
+function Calculadora({ patrimonioRF, patrimonioRV, taxaHoje, meta, v, oculto }) {
+  const lerC = () => { try { return JSON.parse(localStorage.getItem("aigo-fin-calc2") || "{}"); } catch { return {}; } };
+  const [c, setC] = useState(() => ({ rfTxt:"", rvTxt:"", aporteTxt:"500", pctRF:70, anos:10, taxaModo:"hoje", taxaTxt:"10",
+    valTxt:"6", divTxt:"8", reinvestir:true, reajuste:0, inflacao:false, ...lerC() }));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-calc2", JSON.stringify(c)); } catch {} }, [c]);
+  const set = p => setC(x => ({ ...x, ...p }));
+  const n2 = t => Number(String(t).replace(",", ".")) || 0;
+  const iniRF = c.rfTxt === "" ? patrimonioRF : parseValor(c.rfTxt), iniRV = c.rvTxt === "" ? patrimonioRV : parseValor(c.rvTxt);
+  const aporte = parseValor(c.aporteTxt), pRF = Math.max(0, Math.min(100, c.pctRF)) / 100;
+  const taxaRF = c.taxaModo === "hoje" ? (taxaHoje || 10) : c.taxaModo === "conserv" ? 10 : n2(c.taxaTxt);
+  const val = n2(c.valTxt), div = n2(c.divTxt), INFL = 4;
+  const anos = Math.max(1, Math.min(40, Number(c.anos) || 1));
+  const mes = a => Math.pow(1 + a / 100, 1 / 12) - 1;
+  const rRF = mes(taxaRF), rVal = mes(val), rDiv = mes(div), ri = mes(INFL);
+  // mês a mês. Ações/FIIs: o preço sobe pela valorização; os rendimentos (dividendos) são reinvestidos ou guardados à parte
+  let rf = iniRF, rv = iniRV, guardado = 0, invRF = iniRF, invRV = iniRV, ap = aporte, defl = 1, mesMeta = null;
+  const pts = [{ ano:0, rf, rv, invRF, invRV, guardado }];
+  for (let m = 1; m <= anos * 12; m++) {
+    rf = rf * (1 + rRF) + ap * pRF; invRF += ap * pRF;
+    const dv = rv * rDiv;
+    rv = rv * (1 + rVal) + ap * (1 - pRF) + (c.reinvestir ? dv : 0); invRV += ap * (1 - pRF);
+    if (!c.reinvestir) guardado += dv;
+    defl *= 1 + ri;
+    const tot = (rf + rv + guardado) / (c.inflacao ? defl : 1);
+    if (meta && mesMeta == null && tot >= meta) mesMeta = m;
+    if (m % 12 === 0) { const d = c.inflacao ? defl : 1; pts.push({ ano:m / 12, rf:rf / d, rv:rv / d, invRF:invRF / d, invRV:invRV / d, guardado:guardado / d }); ap *= 1 + (c.reajuste || 0) / 100; }
+  }
+  const fim = pts[pts.length - 1];
+  const total = fim.rf + fim.rv + fim.guardado, investido = fim.invRF + fim.invRV;
+  const ganhoRF = fim.rf - fim.invRF, ganhoRV = fim.rv - fim.invRV + fim.guardado;
+  const realAj = c.inflacao ? INFL : 0;
+  const rendaMensal = fim.rf * mes(taxaRF - realAj) + fim.rv * (mes(div) + (c.inflacao ? 0 : 0));
+  const W = 1000, H = 230, pl = 58, pr = 16, pt = 18, pb = 26, n = pts.length, bw = (W - pl - pr) / n;
+  const tot = p => p.rf + p.rv + p.guardado;
+  const mx = Math.max(1, ...pts.map(tot)) * 1.08;
+  const y = x => H - pb - x / mx * (H - pb - pt);
+  const passo = (() => { const bruto = mx / 4, e = Math.pow(10, Math.floor(Math.log10(bruto))); return [1, 2, 2.5, 5, 10].map(k => k * e).find(k => k >= bruto); })();
+  const k = x => x >= 1e6 ? `${(x / 1e6).toFixed(1).replace(".", ",")} mi` : x >= 1000 ? `${Math.round(x / 1000)} mil` : String(Math.round(x));
+  const COR = { inv:"#C9BCF0", rf:"#1E9E4A", rv:"#6250d6" };
+  const campo = { width:"100%", boxSizing:"border-box", border:`1px solid ${P.lilas}`, borderRadius:9, padding:"8px 10px", fontFamily:FONT, fontSize:14, color:P.tinta, background:P.papel };
+  const rot = { display:"block", fontSize:10.5, fontWeight:800, color:P.suave, marginBottom:4, letterSpacing:".04em" };
+  const chip = on => ({ border:"none", borderRadius:999, padding:"5px 10px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer", background: on ? P.roxo : P.lilasClaro, color: on ? "#fff" : P.suave });
+  const tempo = m => { const a = Math.floor(m / 12), mm = m % 12; return [a ? `${a} ano${a > 1 ? "s" : ""}` : "", mm ? `${mm} ${mm > 1 ? "meses" : "mês"}` : ""].filter(Boolean).join(" e "); };
+  const usarHoje = campoK => <button onClick={() => set({ [campoK]:"" })} style={{ border:"none", background:"none", color:P.roxo, padding:0, fontFamily:FONT, fontSize:10.5, cursor:"pointer", fontWeight:700 }}>usar o de hoje</button>;
+  const sec = { padding:"12px 16px", borderBottom:`1px solid ${P.linha}` };
+  const grade = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 };
+  const tituloSec = (t, cor) => <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, fontWeight:800, color:P.roxo, marginBottom:8 }}>
+    <i style={{ width:10, height:10, borderRadius:3, background:cor }}/>{t}</div>;
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="🧮 Calculadora de patrimônio" sub="simule quanto você terá investindo todo mês"/>
+      <div style={sec}><div style={grade}>
+        <label><span style={rot}>INVESTINDO POR MÊS (R$)</span><input value={c.aporteTxt} inputMode="decimal" onChange={e => set({ aporteTxt:e.target.value })} placeholder="500,00" style={campo}/></label>
+        <label><span style={rot}>DIVISÃO DO APORTE: {Math.round(pRF * 100)}% RENDA FIXA · {100 - Math.round(pRF * 100)}% AÇÕES/FIIs</span>
+          <input type="range" min="0" max="100" step="5" value={c.pctRF} onChange={e => set({ pctRF:+e.target.value })} style={{ width:"100%", accentColor:P.roxo, marginTop:8 }}/>
+          <span style={{ fontSize:10.5, color:P.suave }}>{v(aporte * pRF)} renda fixa · {v(aporte * (1 - pRF))} ações/FIIs</span></label>
+        <label><span style={rot}>POR QUANTO TEMPO: {anos} ANO{anos > 1 ? "S" : ""}</span>
+          <input type="range" min="1" max="40" value={anos} onChange={e => set({ anos:+e.target.value })} style={{ width:"100%", accentColor:P.roxo, marginTop:8 }}/>
+          <div style={{ display:"flex", gap:4, marginTop:2 }}>{[5, 10, 20, 30].map(a => <button key={a} onClick={() => set({ anos:a })} style={{ ...chip(anos === a), padding:"2px 8px", fontSize:10.5 }}>{a}a</button>)}</div></label>
+        <div><span style={rot}>EXTRAS</span>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, marginBottom:6 }}>Aumentar o aporte
+            <select value={c.reajuste} onChange={e => set({ reajuste:+e.target.value })} style={{ ...campo, width:"auto", padding:"4px 6px", fontSize:12 }}>
+              {[0, 5, 10].map(x => <option key={x} value={x}>{x ? `${x}% por ano` : "não"}</option>)}</select></label>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, cursor:"pointer" }}><input type="checkbox" checked={c.inflacao} onChange={e => set({ inflacao:e.target.checked })} style={{ accentColor:P.roxo }}/>Em dinheiro de hoje (inflação de {INFL}%)</label>
+        </div>
+      </div></div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))" }}>
+        <div style={{ ...sec, borderRight:`1px solid ${P.linha}` }}>
+          {tituloSec("Renda fixa (caixinhas, CDB, Tesouro)", COR.rf)}
+          <div style={grade}>
+            <label><span style={rot}>COMEÇANDO COM (R$)</span><input value={c.rfTxt} inputMode="decimal" onChange={e => set({ rfTxt:e.target.value })} placeholder={num(patrimonioRF)} style={campo}/>
+              <span style={{ fontSize:10.5, color:P.suave }}>{c.rfTxt === "" ? "o que você tem hoje (+ saldo parado)" : usarHoje("rfTxt")}</span></label>
+            <div><span style={rot}>RENDENDO</span>
+              <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                <button onClick={() => set({ taxaModo:"hoje" })} style={chip(c.taxaModo === "hoje")}>Como hoje {taxaHoje ? `(${taxaHoje.toFixed(1).replace(".", ",")}%)` : ""}</button>
+                <button onClick={() => set({ taxaModo:"conserv" })} style={chip(c.taxaModo === "conserv")}>10% a.a.</button>
+                <button onClick={() => set({ taxaModo:"outra" })} style={chip(c.taxaModo === "outra")}>Outra</button>
+              </div>
+              {c.taxaModo === "outra" && <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}><input value={c.taxaTxt} inputMode="decimal" onChange={e => set({ taxaTxt:e.target.value })} style={{ ...campo, width:80 }}/><span style={{ fontSize:12, color:P.suave }}>% ao ano</span></div>}
+            </div>
+          </div>
+        </div>
+        <div style={sec}>
+          {tituloSec("Ações e FIIs", COR.rv)}
+          <div style={grade}>
+            <label><span style={rot}>COMEÇANDO COM (R$)</span><input value={c.rvTxt} inputMode="decimal" onChange={e => set({ rvTxt:e.target.value })} placeholder={num(patrimonioRV)} style={campo}/>
+              <span style={{ fontSize:10.5, color:P.suave }}>{c.rvTxt === "" ? "o que você tem hoje" : usarHoje("rvTxt")}</span></label>
+            <div style={{ display:"flex", gap:8 }}>
+              <label style={{ flex:1 }}><span style={rot}>VALORIZAÇÃO % A.A.</span><input value={c.valTxt} inputMode="decimal" onChange={e => set({ valTxt:e.target.value })} style={campo}/></label>
+              <label style={{ flex:1 }}><span style={rot}>RENDIMENTOS % A.A.</span><input value={c.divTxt} inputMode="decimal" onChange={e => set({ divTxt:e.target.value })} style={campo}/></label>
+            </div>
+          </div>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, cursor:"pointer", marginTop:8 }}>
+            <input type="checkbox" checked={c.reinvestir} onChange={e => set({ reinvestir:e.target.checked })} style={{ accentColor:P.roxo }}/>Reinvestir os rendimentos (dividendos dos FIIs e ações)</label>
+          <div style={{ fontSize:10.5, color:P.suave, marginTop:4 }}>Valorização = quanto o preço sobe. Rendimentos = o que os FIIs e as ações pagam (FIIs costumam pagar perto de 0,7% a 1% ao mês). Os dois variam: são uma estimativa sua.</div>
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", borderBottom:`1px solid ${P.linha}` }}>
+        {[["Você terá", v(total), P.roxo, `renda fixa ${v(fim.rf)} · ações/FIIs ${v(fim.rv + fim.guardado)}`],
+          ["Você investiu", v(investido), P.tinta, `daqui a ${anos} ano${anos > 1 ? "s" : ""}`],
+          ["Rendimentos", v(ganhoRF + ganhoRV), P.verde, `renda fixa ${v(ganhoRF)} · ações/FIIs ${v(ganhoRV)}`],
+          ["Renda por mês no fim", v(rendaMensal), "#8A6500", "juros da renda fixa + rendimentos dos FIIs/ações"]].map(([l, val2, cor, sub], i) => (
+          <div key={l} style={{ padding:"12px 16px", borderLeft: i ? `1px solid ${P.linha}` : "none" }}>
+            <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+            <div style={{ fontSize:21, fontWeight:900, color:cor, marginTop:2 }}>{val2}</div>
+            <div style={{ fontSize:10.5, color:P.suave }}>{sub}</div>
+          </div>))}
+      </div>
+      {meta > 0 && <div style={{ padding:"10px 16px 0", fontSize:12.5, fontWeight:700, color: mesMeta ? P.roxo : P.suave }}>
+        🎯 {mesMeta ? `Assim, você chega na sua meta de ${v(meta)} em ${tempo(mesMeta)}.` : `Nesse ritmo, a meta de ${v(meta)} não é alcançada em ${anos} anos.`}</div>}
+      <div style={{ display:"flex", gap:14, fontSize:10.5, fontWeight:700, color:P.suave, padding:"10px 16px 0", flexWrap:"wrap" }}>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.inv, marginRight:4 }}/>Você investiu</span>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rf, marginRight:4 }}/>Rendeu na renda fixa</span>
+        <span><i style={{ display:"inline-block", width:10, height:10, borderRadius:3, background:COR.rv, marginRight:4 }}/>Rendeu em ações/FIIs</span>
+      </div>
+      <div style={{ padding:"4px 12px 8px" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Simulação do patrimônio ano a ano">
+          {Array.from({ length: Math.floor(mx / passo) + 1 }, (_, i) => i * passo).map(g => <g key={g}>
+            <line x1={pl} x2={W - pr} y1={y(g)} y2={y(g)} stroke="#ECE8F5"/>
+            <text x={pl - 6} y={y(g) + 3} textAnchor="end" fontSize="10" fill="#8C84A3" fontFamily="Montserrat, sans-serif">{oculto ? "‑‑‑" : k(g)}</text></g>)}
+          {pts.map((p, i) => {
+            const x = pl + i * bw + bw * .18, w = bw * .64;
+            const inv = p.invRF + p.invRV, gRF = Math.max(0, p.rf - p.invRF), gRV = Math.max(0, p.rv - p.invRV + p.guardado);
+            const fatias = [[inv, COR.inv], [gRF, COR.rf], [gRV, COR.rv]];
+            let base = 0;
+            const mostrar = n <= 12 || i % Math.ceil(n / 12) === 0 || i === n - 1;
+            return <g key={p.ano}>
+              {fatias.map(([val2, cor], j) => { const y0 = y(base), y1 = y(base + val2); base += val2;
+                return val2 > 0 && <rect key={j} x={x} y={y1} width={w} height={Math.max(0, y0 - y1 - (j ? 1 : 0))} rx="2" fill={cor}/>; })}
+              <title>{`Ano ${p.ano}: ${brl(tot(p))} · investiu ${brl(inv)} · renda fixa rendeu ${brl(gRF)} · ações/FIIs renderam ${brl(gRV)}`}</title>
+              {mostrar && <text x={x + w / 2} y={H - 8} textAnchor="middle" fontSize="10.5" fontWeight={i === n - 1 ? 800 : 600} fill={i === n - 1 ? P.roxo : P.suave} fontFamily="Montserrat, sans-serif">{p.ano === 0 ? "hoje" : `${p.ano}a`}</text>}
+              {i === n - 1 && !oculto && <text x={Math.min(x + w / 2, W - pr - 2)} y={y(tot(p)) - 6} textAnchor="end" fontSize="11.5" fontWeight="800" fill={P.tinta} fontFamily="Montserrat, sans-serif">{k(tot(p))}</text>}
+            </g>;
+          })}
+        </svg>
+      </div>
+      <div style={{ padding:"0 16px 12px", fontSize:10.5, color:P.suave, lineHeight:1.5 }}>
+        Simulação com juros compostos todo mês, antes do imposto de renda. {c.taxaModo === "hoje" ? "“Como hoje” usa o CDI de hoje e o % das suas caixinhas; no longo prazo o CDI costuma mudar. " : ""}Ações e FIIs não têm rendimento garantido. Isto não é recomendação de investimento.</div>
     </div>
   );
 }
