@@ -1211,7 +1211,7 @@ function GeralPessoal({ rows, ano, onPick }) {
 // Ações: quantidade × cotação da B3 (atrasada ~15 min). Saldo em conta: não rende.
 const TIPOS_INV = {
   cdi:   { nome:"Caixinha / CDI", cor:"#1baf7a" },
-  acao:  { nome:"Ações", cor:"#6250d6" },
+  acao:  { nome:"Ações e FIIs", cor:"#6250d6" },
   caixa: { nome:"Saldo para investir", cor:"#9A94AC" },
 };
 const CORES_BANCO = ["#8e44ad", "#2a78d6", "#eda100", "#e34948", "#008300", "#eb6834", "#0f8b8d", "#c2185b"];
@@ -1236,8 +1236,8 @@ function fatorCDI(cdi, pct, d0, d1) {
 const sinal = m => m.tipo === "resgate" ? -1 : 1;
 // Transferência entre investimentos = saída de um + entrada no outro (não muda o total)
 const expandirTransf = arr => arr.flatMap(m => m.tipo === "transf" && m.para ? [
-  { ...m, tipo:"resgate", transf:true, orig:m.id, id:m.id + "<" },
-  { ...m, inv:m.para, tipo:"aporte", qtd:0, transf:true, dest:true, orig:m.id, id:m.id + ">" }] : [m]);
+  { ...m, tipo:"resgate", qtd:m.qtdDe || 0, cotas:m.qtd || 0, transf:true, orig:m.id, id:m.id + "<" },          // qtdDe = cotas vendidas (se saiu de uma ação)
+  { ...m, inv:m.para, tipo:"aporte", qtd:m.qtd || 0, transf:true, dest:true, orig:m.id, id:m.id + ">" }] : [m]);   // qtd = cotas compradas
 const ehTransf = m => m.tipo === "transf" || m.transf;
 function precoEm(a, D) {
   if (!a) return null;
@@ -1397,7 +1397,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   if (aba !== "geral") return (
     <>
       <MesInvest mm={`${ano}-${pad(aba + 1)}`} {...ctxMes}/>
-      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
     </>
   );
 
@@ -1490,6 +1490,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
                     {q ? ` · preço médio ${brl(custo / q)}` : ""}</span>
                 </>}
                 {it.tipo === "caixa" && <span style={{ fontSize:10.5, color:P.suave }}>parado na conta, esperando para investir</span>}
+                {it.tipo === "caixa" && <button onClick={() => setFormMov({ data:hoje, tipo:"transf", inv:it.id, para:"" })}
+                  style={{ ...mini, alignSelf:"flex-start", marginTop:4, borderColor:"#C9BCF0", background:"#F5F1FD" }}>📈 Comprei ações / FIIs com esse dinheiro</button>}
                 {it.meta > 0 && <div style={{ marginTop:4 }}>
                   <div style={{ height:7, background:P.lilasClaro, borderRadius:9, overflow:"hidden" }}><div style={{ width:`${Math.min(100, atual / it.meta * 100)}%`, height:"100%", background:t.cor }}/></div>
                   <span style={{ fontSize:10.5, fontWeight:700, color:P.roxo }}>🎯 {Math.round(atual / it.meta * 100)}% de {v(it.meta)}</span></div>}
@@ -1554,7 +1556,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 
       {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
         onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }}/>}
-      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); setFormMov(null); }}/>}
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
     </div>
   );
 }
@@ -1574,7 +1576,7 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
       <span style={{ color:P.suave, width:data === "curta" ? 46 : 72 }}>{data === "curta" ? dataBR(m.data).slice(0, 5) : dataBR(m.data)}</span>
       <b style={{ flex:1, minWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr ? <>{nome(it)} <span style={{ color:P.suave }}>→</span> {nome(para)}</> : nome(it)}</b>
       <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:bg, color:fg }}>{txt}</span>
-      {m.qtd && !tr ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : null}
+      {m.qtd && !tr ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : tr && m.cotas ? <span style={{ color:P.suave, fontSize:11 }}>comprou {m.cotas} cotas</span> : null}
       <b style={{ width:110, textAlign:"right", color:fg }}>{tr ? "" : m.tipo === "resgate" ? "−" : "+"}{v(m.valor || 0)}</b>
       {!tr && m.tipo === "resgate" && onTransformar && <button onClick={() => onTransformar(m)} title="Na verdade o dinheiro foi para outro investimento"
         style={{ ...mini, padding:"2px 7px" }}>↔ foi transferência?</button>}
@@ -1852,7 +1854,7 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
         {Object.entries(TIPOS_INV).map(([k, t]) => <button key={k} onClick={() => set({ tipo:k })} style={{ border:"none", borderRadius:999, padding:"6px 12px", fontFamily:FONT, fontSize:12,
           fontWeight:700, cursor:"pointer", background: f.tipo === k ? t.cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t.nome}</button>)}
       </div>
-      {f.tipo === "acao" && <Campo rotulo="CÓDIGO DA AÇÃO" dica="Como aparece na corretora, ex.: PETR4, BBAS3">
+      {f.tipo === "acao" && <Campo rotulo="CÓDIGO DA AÇÃO OU FII" dica="Como aparece na corretora, ex.: PETR4, BBAS3 ou um fundo imobiliário como MXRF11">
         <input value={f.ticker || ""} onChange={e => set({ ticker:e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="PETR4" style={campoSt}/></Campo>}
       <Campo rotulo="NOME"><input value={f.nome} onChange={e => set({ nome:e.target.value })} placeholder={f.tipo === "acao" ? "Petrobras" : f.tipo === "cdi" ? "Caixinha 120%" : "Saldo XP"} style={campoSt}/></Campo>
       <Campo rotulo="BANCO / CORRETORA"><input value={f.instituicao} onChange={e => set({ instituicao:e.target.value })} placeholder="Nubank, Mercado Pago, XP…" style={campoSt}/></Campo>
@@ -1872,30 +1874,52 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
     </Janela>
   );
 }
+const NOVA_ACAO = "__nova_acao__";
 function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
-  const [f, setF] = useState({ valorTxt:"", qtd:"", info:"", ...inicial });
+  const [f, setF] = useState({ valorTxt:"", qtd:"", qtdDe:"", info:"", ticker:"", nomeAcao:"", ...inicial,
+    qtd: inicial.qtd ? String(inicial.qtd) : "", qtdDe: inicial.qtdDe ? String(inicial.qtdDe) : "" });
   const set = p => setF(x => ({ ...x, ...p }));
-  const it = itens.find(i => i.id === f.inv);
+  const it = itens.find(i => i.id === f.inv), dest = itens.find(i => i.id === f.para);
   const acao = it?.tipo === "acao";
+  const transf = f.tipo === "transf", novaAcao = transf && f.para === NOVA_ACAO;
+  const paraAcao = transf && (novaAcao || dest?.tipo === "acao");
+  function salvar() {
+    let para = transf ? f.para : "";
+    if (novaAcao) {   // cria a ação nova (vazia) e o dinheiro entra nela pela transferência
+      para = uid();
+      const t = f.ticker.toUpperCase().replace(/\s/g, "");
+      onSalvar(para, { nome: f.nomeAcao.trim() || t, instituicao: it?.instituicao || "", tipo:"acao", ticker:t, custo:0, qtd:0,
+        dataBase: somaDias(f.data || hojeStr(), -1), ord: Date.now() });
+    }
+    onSalvar(f.id || uid(), { kind: plano ? "plano" : (f.kind || "mov"), inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt),
+      qtd: transf ? (paraAcao ? parseInt(f.qtd) || 0 : 0) : (acao ? parseInt(f.qtd) || 0 : 0),
+      qtdDe: transf && acao ? parseInt(f.qtdDe) || 0 : 0, para, data:f.data || hojeStr() });
+  }
   return (
     <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-        {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar", "#5B2BA6"]].map(([k, t, cor]) => (
+        {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar / comprou ações ou FIIs", "#5B2BA6"]].map(([k, t, cor]) => (
           <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px 4px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer",
             background: f.tipo === k ? cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t}</button>))}
       </div>
       <Campo rotulo={f.tipo === "transf" ? "SAIU DE" : "INVESTIMENTO"}><select value={f.inv} onChange={e => set({ inv:e.target.value })} style={campoSt}>
         {itens.map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>
-      {f.tipo === "transf" && <Campo rotulo="FOI PARA" dica="O total investido não muda: o dinheiro só trocou de lugar.">
+      {transf && acao && <Campo rotulo="QUANTAS COTAS VENDEU"><input value={f.qtdDe} inputMode="numeric" onChange={e => set({ qtdDe:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      {transf && <Campo rotulo="FOI PARA" dica={paraAcao ? "O dinheiro sai daqui e vira as cotas da ação. O total investido não muda na hora da compra." : "O total investido não muda: o dinheiro só trocou de lugar."}>
         <select value={f.para || ""} onChange={e => set({ para:e.target.value })} style={campoSt}>
           <option value="" disabled>Escolha…</option>
-          {itens.filter(i => i.id !== f.inv).map(i => <option key={i.id} value={i.id}>{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}</select></Campo>}
+          {itens.filter(i => i.id !== f.inv).map(i => <option key={i.id} value={i.id}>{i.tipo === "acao" ? "📈 " : ""}{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}
+          <option value={NOVA_ACAO}>＋ Comprei uma ação ou FII novo…</option></select></Campo>}
+      {novaAcao && <>
+        <Campo rotulo="CÓDIGO DA AÇÃO OU FII" dica="Como aparece na corretora, ex.: ITUB4, VALE3, MXRF11"><input value={f.ticker} onChange={e => set({ ticker:e.target.value.toUpperCase() })} placeholder="ITUB4" style={campoSt}/></Campo>
+        <Campo rotulo="NOME (OPCIONAL)"><input value={f.nomeAcao} onChange={e => set({ nomeAcao:e.target.value })} placeholder="Itaú" style={campoSt}/></Campo>
+      </>}
       <Campo rotulo="VALOR (R$)"><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
-      {acao && f.tipo !== "transf" && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      {paraAcao && <Campo rotulo="QUANTAS COTAS COMPROU"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      {acao && !transf && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
-      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(f.valorTxt) || !f.inv || (f.tipo === "transf" && (!f.para || f.para === f.inv))}
-        onClick={() => onSalvar(f.id || uid(), { kind: plano ? "plano" : (f.kind || "mov"), inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt),
-          qtd: acao && f.tipo !== "transf" ? parseInt(f.qtd) || 0 : 0, para: f.tipo === "transf" ? f.para : "", data:f.data || hojeStr() })}>Salvar</Btn></div>
+      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} onClick={salvar}
+        disabled={!parseValor(f.valorTxt) || !f.inv || (transf && (!f.para || f.para === f.inv)) || (novaAcao && !/^[A-Z]{4}\d{1,2}$/.test(f.ticker.trim())) || (paraAcao && !parseInt(f.qtd))}>Salvar</Btn></div>
     </Janela>
   );
 }
