@@ -1211,7 +1211,7 @@ function GeralPessoal({ rows, ano, onPick }) {
 // Ações: quantidade × cotação da B3 (atrasada ~15 min). Saldo em conta: não rende.
 const TIPOS_INV = {
   cdi:   { nome:"Caixinha / CDI", cor:"#1baf7a" },
-  acao:  { nome:"Ações", cor:"#6250d6" },
+  acao:  { nome:"Ações e FIIs", cor:"#6250d6" },
   caixa: { nome:"Saldo para investir", cor:"#9A94AC" },
 };
 const CORES_BANCO = ["#8e44ad", "#2a78d6", "#eda100", "#e34948", "#008300", "#eb6834", "#0f8b8d", "#c2185b"];
@@ -1491,7 +1491,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
                 </>}
                 {it.tipo === "caixa" && <span style={{ fontSize:10.5, color:P.suave }}>parado na conta, esperando para investir</span>}
                 {it.tipo === "caixa" && <button onClick={() => setFormMov({ data:hoje, tipo:"transf", inv:it.id, para:"" })}
-                  style={{ ...mini, alignSelf:"flex-start", marginTop:4, borderColor:"#C9BCF0", background:"#F5F1FD" }}>📈 Comprei ações com esse dinheiro</button>}
+                  style={{ ...mini, alignSelf:"flex-start", marginTop:4, borderColor:"#C9BCF0", background:"#F5F1FD" }}>📈 Comprei ações / FIIs com esse dinheiro</button>}
                 {it.meta > 0 && <div style={{ marginTop:4 }}>
                   <div style={{ height:7, background:P.lilasClaro, borderRadius:9, overflow:"hidden" }}><div style={{ width:`${Math.min(100, atual / it.meta * 100)}%`, height:"100%", background:t.cor }}/></div>
                   <span style={{ fontSize:10.5, fontWeight:700, color:P.roxo }}>🎯 {Math.round(atual / it.meta * 100)}% de {v(it.meta)}</span></div>}
@@ -1854,7 +1854,7 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
         {Object.entries(TIPOS_INV).map(([k, t]) => <button key={k} onClick={() => set({ tipo:k })} style={{ border:"none", borderRadius:999, padding:"6px 12px", fontFamily:FONT, fontSize:12,
           fontWeight:700, cursor:"pointer", background: f.tipo === k ? t.cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t.nome}</button>)}
       </div>
-      {f.tipo === "acao" && <Campo rotulo="CÓDIGO DA AÇÃO" dica="Como aparece na corretora, ex.: PETR4, BBAS3">
+      {f.tipo === "acao" && <Campo rotulo="CÓDIGO DA AÇÃO OU FII" dica="Como aparece na corretora, ex.: PETR4, BBAS3 ou um fundo imobiliário como MXRF11">
         <input value={f.ticker || ""} onChange={e => set({ ticker:e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="PETR4" style={campoSt}/></Campo>}
       <Campo rotulo="NOME"><input value={f.nome} onChange={e => set({ nome:e.target.value })} placeholder={f.tipo === "acao" ? "Petrobras" : f.tipo === "cdi" ? "Caixinha 120%" : "Saldo XP"} style={campoSt}/></Campo>
       <Campo rotulo="BANCO / CORRETORA"><input value={f.instituicao} onChange={e => set({ instituicao:e.target.value })} placeholder="Nubank, Mercado Pago, XP…" style={campoSt}/></Campo>
@@ -1898,7 +1898,7 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
   return (
     <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-        {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar / comprou ações", "#5B2BA6"]].map(([k, t, cor]) => (
+        {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar / comprou ações ou FIIs", "#5B2BA6"]].map(([k, t, cor]) => (
           <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px 4px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer",
             background: f.tipo === k ? cor : P.lilasClaro, color: f.tipo === k ? "#fff" : P.suave }}>{t}</button>))}
       </div>
@@ -1909,9 +1909,9 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
         <select value={f.para || ""} onChange={e => set({ para:e.target.value })} style={campoSt}>
           <option value="" disabled>Escolha…</option>
           {itens.filter(i => i.id !== f.inv).map(i => <option key={i.id} value={i.id}>{i.tipo === "acao" ? "📈 " : ""}{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}
-          <option value={NOVA_ACAO}>＋ Comprei uma ação nova…</option></select></Campo>}
+          <option value={NOVA_ACAO}>＋ Comprei uma ação ou FII novo…</option></select></Campo>}
       {novaAcao && <>
-        <Campo rotulo="CÓDIGO DA AÇÃO" dica="Como aparece na corretora, ex.: ITUB4, VALE3"><input value={f.ticker} onChange={e => set({ ticker:e.target.value.toUpperCase() })} placeholder="ITUB4" style={campoSt}/></Campo>
+        <Campo rotulo="CÓDIGO DA AÇÃO OU FII" dica="Como aparece na corretora, ex.: ITUB4, VALE3, MXRF11"><input value={f.ticker} onChange={e => set({ ticker:e.target.value.toUpperCase() })} placeholder="ITUB4" style={campoSt}/></Campo>
         <Campo rotulo="NOME (OPCIONAL)"><input value={f.nomeAcao} onChange={e => set({ nomeAcao:e.target.value })} placeholder="Itaú" style={campoSt}/></Campo>
       </>}
       <Campo rotulo="VALOR (R$)"><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
