@@ -150,8 +150,8 @@ function atualizarCatExtra(rows) {
 const REGRAS_GRUPO = [
   ["Saúde", /sa[uú]de|m[eé]dic|dentista|farm[aá]cia|rem[eé]dio|exame|terapia|academia|psic/],
   ["Estudos", /fies|faculdade|curso|escola|mensalidade escolar|livro|material escolar/],
-  ["Carro e transporte", /carro|seguro|combust|abastec|\bposto\b|gasolina|etanol|ped[aá]gio|uber|[oô]nibus|passagem|ipva|licenciamento|mec[aâ]nic|estacionamento/],
-  ["Assinaturas e celular", /netflix|spotify|youtube|prime|disney|hbo|globoplay|celular|recarga|cr[eé]dito celular|icloud|assinatura|streaming/],
+  ["Carro e transporte", /carro|seguro|nutag|sem parar|conectcar|combust|abastec|\bposto\b|gasolina|etanol|ped[aá]gio|uber|[oô]nibus|passagem|ipva|licenciamento|mec[aâ]nic|estacionamento/],
+  ["Assinaturas e celular", /openai|chatgpt|anthropic|claude|apple\.com|iof de compra internacional|netflix|spotify|youtube|prime|disney|hbo|globoplay|celular|recarga|cr[eé]dito celular|icloud|assinatura|streaming/],
   ["Mercado e dia a dia", /mercado|supermercado|katuxa|padaria|a[cç]ougue|feira|ifood|lanche|restaurante|almo[cç]o|janta|caf[eé]/],
   ["Casa e contas", /aluguel|caixa|financiamento|condom[ií]nio|energia|\bluz\b|[aá]gua|internet|g[aá]s|ilda|diarista|iptu/],
   ["Coisas p/ casa", /port[aã]o|placa solar|tinta|riotintas|m[oó]vel|eletro|geladeira|fog[aã]o|sof[aá]|cama|colch[aã]o|panela|reforma|constru|casa|decora/],
@@ -168,12 +168,12 @@ function sugerirGrupo(descricao = "", classe = "") {
 
 // Sugere a categoria pelo nome do gasto (a ordem importa: "Alessa Tráfego" é equipe, não anúncio)
 const REGRAS_CAT = [
-  ["Maringá e viagens", /maring|ped[aá]gio|combust|abastec|\bposto\b|gasolina|etanol|uber|viagem|hotel|passagem/],
+  ["Maringá e viagens", /maring|ped[aá]gio|nutag|sem parar|conectcar|combust|abastec|\bposto\b|gasolina|etanol|uber|viagem|hotel|passagem/],
   ["Impostos e encargos", /\bfgts\b|\binss\b|\bdas\b|contador|contabil|imposto|\biss\b|darf|simples nacional|irpf|tributo/],
   ["Dívidas e financiamentos", /empr[eé]stimo|cons[oó]rcio|financiamento|juros/],
   ["Equipe e salários", /sal[aá]rio|pr[oó][ -]?labore|alessa|kamilly|mikaelly|ilda|freela|funcion|equipe|vale|f[eé]rias|13º|décimo/],
   ["Estrutura do estúdio", /aluguel|[aá]gua|energia|\bluz\b|internet|condom[ií]nio|telefone|limpeza|iptu/],
-  ["Ferramentas e assinaturas", /adobe|canva|capcut|icloud|google|drive|\bsite\b|dom[ií]nio|hospedagem|assinatura|notion|figma|chatgpt|claude|lightroom|spotify|software|app\b/],
+  ["Ferramentas e assinaturas", /adobe|canva|capcut|icloud|apple\.com|openai|anthropic|iof de compra internacional|google|drive|\bsite\b|dom[ií]nio|hospedagem|assinatura|notion|figma|chatgpt|claude|lightroom|spotify|software|app\b/],
   ["Marketing e anúncios", /an[uú]ncio|\bads\b|facebook|meta|instagram|impulsion|tr[aá]fego pago|marketing|brinde/],
   ["Investimentos", /investimento|equipamento|c[aâ]mera|lente|mesa|cadeira|notebook|computador|m[oó]vel|est[uú]dio|ilumina|trip[eé]/],
 ];
@@ -416,6 +416,55 @@ function downloadFile(name, content, type) {
 
 // O lado maior fica em até 1568px (o máximo que a IA aproveita); com muitos prints
 // reduz um pouco para o envio caber no limite da Vercel (~4,5 MB)
+// ── Importar CSV do banco (Nubank cartão "date,title,amount" ou conta "Data,Valor,Identificador,Descrição") ──
+// Lido no próprio site (sem IA, sem custo). Pagamento da fatura é ignorado e estornos cancelam a compra igual.
+function linhasCSV(texto) {
+  const out = []; let campo = "", linha = [], aspas = false;
+  const t = texto.replace(/^﻿/, "");
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (aspas) { if (ch === '"') { if (t[i + 1] === '"') { campo += '"'; i++; } else aspas = false; } else campo += ch; }
+    else if (ch === '"') aspas = true;
+    else if (ch === "," || ch === ";") { linha.push(campo); campo = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && t[i + 1] === "\n") i++; linha.push(campo); campo = ""; if (linha.some(c => c.trim())) out.push(linha); linha = []; }
+    else campo += ch;
+  }
+  linha.push(campo); if (linha.some(c => c.trim())) out.push(linha);
+  return out;
+}
+function lerCSVBanco(texto) {
+  const ls = linhasCSV(texto);
+  if (ls.length < 2) return null;
+  const cab = ls[0].map(c => semAcento(c));
+  const col = nomes => cab.findIndex(c => nomes.includes(c));
+  const iData = col(["date", "data"]), iDesc = col(["title", "descricao", "description", "historico"]), iValor = col(["amount", "valor"]);
+  if (iData < 0 || iDesc < 0 || iValor < 0) return null;
+  const cartao = cab.includes("title") || cab.includes("amount");   // no cartão, positivo = gasto; na conta, negativo = gasto
+  const brutos = ls.slice(1).map(l => {
+    const d = (l[iData] || "").trim(), raw = (l[iValor] || "").replace(/\s/g, "");
+    const data = /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : /^\d{2}\/\d{2}\/\d{4}/.test(d) ? d.slice(0, 10).split("/").reverse().join("-") : "";
+    const neg = raw.startsWith("-") || raw.startsWith("−");
+    return { data, desc:(l[iDesc] || "").trim(), valor: parseValor(raw), neg };
+  }).filter(x => x.data && x.valor > 0);
+  let pagamentos = 0, entradas = 0, estornos = 0;
+  const gastos = [], pend = [];
+  const casar = x => { const j = gastos.findIndex(g => !g.cancelado && semAcento(g.desc) === semAcento(x.desc) && Math.abs(g.valor - x.valor) < .005);
+    if (j >= 0) { gastos[j].cancelado = true; estornos++; return true; } return false; };
+  for (const x of brutos) {
+    const gasto = cartao ? !x.neg : x.neg;
+    if (gasto) { gastos.push(x); continue; }
+    if (cartao && /pagamento recebido|pagamento de fatura/i.test(x.desc)) { pagamentos++; continue; }
+    if (cartao) { if (!casar(x)) pend.push(x); continue; }   // estorno: cancela uma compra igual (mesmo nome e valor)
+    entradas++;
+  }
+  pend.forEach(casar);   // estornos que vieram antes da compra no arquivo
+  const itens = gastos.filter(g => !g.cancelado).map(g => {
+    const m = /\s*[-–]\s*Parcela\s+(\d+)\s*\/\s*(\d+)\s*$/i.exec(g.desc);
+    return { data:g.data, descricao: m ? g.desc.slice(0, m.index).trim() : g.desc, valor:g.valor, info: m ? `${m[1]}/${m[2]}` : "" };
+  });
+  return { itens, pagamentos, estornos, entradas, cartao };
+}
+
 function compressImage(file, total = 1) {
   const lado = total <= 4 ? 1568 : total <= 7 ? 1300 : 1100;
   return new Promise((res, rej) => {
@@ -2752,8 +2801,11 @@ function FinanceiroApp({ senha, sair }) {
 
   // ── prints ──
   async function handleFiles(files) {
-    files = [...files].filter(f => f.type.startsWith("image/"));
-    if (!files.length) return;
+    const todos = [...files];
+    const csvs = todos.filter(f => /\.csv$/i.test(f.name) || f.type === "text/csv");
+    files = todos.filter(f => f.type.startsWith("image/"));
+    if (csvs.length) await importarCSV(csvs);
+    if (!files.length) { if (fileRef.current) fileRef.current.value = ""; return; }
     if (files.length > 10) { setMsg("⚠️ Envie no máximo 10 prints por vez."); return; }
     setReading(true);
     setMsg(`Lendo ${files.length} print${files.length > 1 ? "s" : ""} com IA...`);
@@ -2779,6 +2831,23 @@ function FinanceiroApp({ senha, sair }) {
     } catch (e) { setMsg("⚠️ Erro: " + (e.message || String(e))); }
     setReading(false);
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  // CSV do banco → vai para "Confira o que foi lido", igual aos prints (sem IA)
+  async function importarCSV(arqs) {
+    let total = [], pag = 0, est = 0, ent = 0, ruins = 0;
+    for (const f of arqs) {
+      const r = lerCSVBanco(await f.text());
+      if (!r) { ruins++; continue; }
+      pag += r.pagamentos; est += r.estornos; ent += r.entradas;
+      total = total.concat(r.itens.map(x => normalize({ secao: pessoal ? "p_extra" : "extra", mes:x.data.slice(0, 7), dia:+x.data.slice(8, 10),
+        descricao:x.descricao, valor:x.valor, forma:"Nubank", status:"pago", info:x.info, categoria:"" })));
+    }
+    if (!total.length) { setMsg(ruins ? "⚠️ Não reconheci esse CSV. Ele precisa ter as colunas de data, descrição e valor (como o do Nubank)." : "⚠️ Nenhum gasto encontrado no CSV."); return; }
+    setReview(r => { const ja = new Set(r.map(chave)); return [...r, ...total.filter(x => !ja.has(chave(x)))]; });
+    const extras = [pag ? `${pag} pagamento${pag > 1 ? "s" : ""} de fatura ignorado${pag > 1 ? "s" : ""}` : "", est ? `${est} estorno${est > 1 ? "s" : ""} cancelado${est > 1 ? "s" : ""} com a compra` : "",
+      ent ? `${ent} entrada${ent > 1 ? "s" : ""} ignorada${ent > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ");
+    setMsg(`🔎 CSV lido sem IA: ${total.length} gasto${total.length > 1 ? "s" : ""}${extras ? ` (${extras})` : ""}. Confira abaixo, escolha 🏢 Empresa ou 🏠 Pessoal e clique em "Salvar lançamentos".`);
   }
 
   function confirmar() {
@@ -2923,13 +2992,13 @@ function FinanceiroApp({ senha, sair }) {
           </div>
         </div>
 
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => handleFiles(e.target.files)}/>
+        <input ref={fileRef} type="file" accept="image/*,.csv,text/csv" multiple hidden onChange={e => handleFiles(e.target.files)}/>
         <div onClick={() => !reading && fileRef.current?.click()}
           onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
           onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
           style={{ border:`2px dashed ${drag ? P.roxo2 : P.lilas}`, background: drag ? P.lilasClaro : P.papel, borderRadius:12,
             padding:"14px 16px", textAlign:"center", cursor:"pointer", marginBottom:12, fontSize:12, color:P.suave }}>
-          <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints aqui"}</b> · PIX, comprovantes, extratos, faturas · {pessoal ? "a IA separa em Fixos, Casa e Parcelas e extras" : "a IA separa em Fixos, Variáveis, Parcelas e Receitas"}
+          <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints ou o CSV do banco aqui"}</b> · PIX, comprovantes, extratos, faturas, CSV do Nubank · {pessoal ? "a IA separa em Fixos, Casa e Parcelas e extras" : "a IA separa em Fixos, Variáveis, Parcelas e Receitas"}
         </div>
 
         {msg && (
