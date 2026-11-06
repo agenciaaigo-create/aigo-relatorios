@@ -263,6 +263,8 @@ body{background:${P.bg}}
 .fin-cell:focus{outline:2px solid ${P.roxo2};outline-offset:-2px;background:#fff !important}
 .fin-row:hover td{filter:brightness(.985)}
 .fin-row:hover .fin-del{opacity:1}
+.fin-rep td{background:#FDECEC!important}
+.fin-rep input,.fin-rep select,.fin-rep .fin-cell,.fin-rep span{text-decoration:line-through;color:#C0392B!important}
 .fin-del{opacity:.25}
 @media (hover:none){.fin-del{opacity:.6}}
 .fin-ocultar .fin-oculto{visibility:hidden}
@@ -317,6 +319,7 @@ function normalize(r) {
     disp: r.disp || "",          // aparelho onde foi criado
     ord: Number(r.ord) || 0,     // ordem de criação (mantém a ordem dentro do mesmo dia)
     auto: !!r.auto,              // parcela criada automaticamente (some quando você mexe nela)
+    ...(r.repetido ? { repetido: r.repetido } : {}),   // só na conferência: já estava salvo
   };
 }
 
@@ -399,9 +402,12 @@ function tirarJaSalvos(novos, salvos) {
   for (const n of novos) {
     const i = salvos.findIndex((s, k) => !usados.has(k) && s.mes === n.mes && (!s.dia || !n.dia || +s.dia === +n.dia)
       && Math.abs((+s.valor || 0) - (+n.valor || 0)) < 0.005 && pareceMesma(s.descricao, n.descricao));
-    if (i >= 0) { usados.add(i); tirados.push(n); } else ficam.push(n);
+    if (i >= 0) { usados.add(i); const s = salvos[i];
+      tirados.push({ ...n, repetido: `Já salvo: ${s.descricao} · dia ${s.dia || "?"}/${s.mes.slice(5)} · ${ESPACOS[espacoDe(s.secao)].icone} ${SECTIONS[s.secao]?.title || ""}` }); }
+    else ficam.push(n);
   }
-  return { ficam, tirados };
+  const marcados = novos.map(n => tirados.find(t => t.id === n.id) || n);
+  return { ficam, tirados, marcados };
 }
 const chave = r => [r.mes, r.secao, r.dia, r.descricao.trim().toLowerCase(), r.valor.toFixed(2)].join("|");
 
@@ -2559,6 +2565,7 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem("aigo-fin-ocultar", ocultar ? "1" : "0"); } catch {} }, [ocultar]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
+  const nRepRev = review.filter(r => r.repetido).length;
   // 💰 investimentos — sincronizam pela nuvem
   const [invest, setInvest] = useState(() => lerJSON("aigo-fin-invest", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-invest", JSON.stringify(invest)); } catch {} }, [invest]);
@@ -2838,9 +2845,9 @@ function FinanceiroApp({ senha, sair }) {
         .filter(r => r.descricao.trim() || r.valor > 0);
       if (!found.length) setMsg("⚠️ Não encontrei lançamentos nesses prints. Adicione a linha manualmente.");
       else {
-        const { ficam, tirados } = tirarJaSalvos(found, [...rows.filter(x => !x.auto), ...review]);
-        setReview(r => [...r, ...ficam]);
-        setMsg(!ficam.length ? `✅ Os ${found.length} lançamentos desse print já estavam salvos — nada novo para adicionar.`
+        const { ficam, tirados, marcados } = tirarJaSalvos(found, [...rows.filter(x => !x.auto), ...review.filter(x => !x.repetido)]);
+        setReview(r => [...r, ...marcados]);
+        setMsg(!ficam.length ? `✅ Os ${found.length} lançamentos desse print já estavam salvos — estão riscados em vermelho para você conferir.`
           : `🔎 ${ficam.length} lançamento${ficam.length > 1 ? "s" : ""} novo${ficam.length > 1 ? "s" : ""} encontrado${ficam.length > 1 ? "s" : ""}.${repetidosTxt(tirados.length)} Confira abaixo e clique em "Salvar lançamentos" (sem isso eles não são salvos).`);
       }
     } catch (e) { setMsg("⚠️ Erro: " + (e.message || String(e))); }
@@ -2849,7 +2856,7 @@ function FinanceiroApp({ senha, sair }) {
   }
 
   // CSV do banco → vai para "Confira o que foi lido", igual aos prints (sem IA)
-  const repetidosTxt = n => n ? ` 🧹 ${n} já estava${n > 1 ? "m" : ""} salvo${n > 1 ? "s" : ""} e ${n > 1 ? "foram tirados" : "foi tirado"} automaticamente.` : "";
+  const repetidosTxt = n => n ? ` 🧹 ${n} já estava${n > 1 ? "m" : ""} salvo${n > 1 ? "s" : ""}: ${n > 1 ? "estão riscados" : "está riscado"} em vermelho e não ${n > 1 ? "serão salvos" : "será salvo"} de novo.` : "";
   async function importarCSV(arqs) {
     let total = [], pag = 0, est = 0, ent = 0, ruins = 0;
     for (const f of arqs) {
@@ -2860,23 +2867,26 @@ function FinanceiroApp({ senha, sair }) {
         descricao:x.descricao, valor:x.valor, forma:"Nubank", status:"pago", info:x.info, categoria:"" })));
     }
     if (!total.length) { setMsg(ruins ? "⚠️ Não reconheci esse CSV. Ele precisa ter as colunas de data, descrição e valor (como o do Nubank)." : "⚠️ Nenhum gasto encontrado no CSV."); return; }
-    const { ficam, tirados } = tirarJaSalvos(total, [...rows.filter(x => !x.auto), ...review]);
-    if (!ficam.length) { setMsg(`✅ Todos os ${total.length} gastos desse CSV já estavam salvos — nada novo para adicionar.`); return; }
-    setReview(r => [...r, ...ficam]);
+    const { ficam, tirados, marcados } = tirarJaSalvos(total, [...rows.filter(x => !x.auto), ...review.filter(x => !x.repetido)]);
+    setReview(r => [...r, ...marcados]);
+    if (!ficam.length) { setMsg(`✅ Todos os ${total.length} gastos desse CSV já estavam salvos — estão riscados em vermelho para você conferir. Pode clicar em "Descartar".`); return; }
     const extras = [pag ? `${pag} pagamento${pag > 1 ? "s" : ""} de fatura ignorado${pag > 1 ? "s" : ""}` : "", est ? `${est} estorno${est > 1 ? "s" : ""} cancelado${est > 1 ? "s" : ""} com a compra` : "",
       ent ? `${ent} entrada${ent > 1 ? "s" : ""} ignorada${ent > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ");
     setMsg(`🔎 CSV lido sem IA: ${ficam.length} gasto${ficam.length > 1 ? "s" : ""} novo${ficam.length > 1 ? "s" : ""}${extras ? ` (${extras})` : ""}.${repetidosTxt(tirados.length)} Confira abaixo, escolha 🏢 Empresa ou 🏠 Pessoal e clique em "Salvar lançamentos".`);
   }
 
   function confirmar() {
+    const nRep = review.filter(r => r.repetido).length;
+    const review_ = review.filter(r => !r.repetido);
+    if (!review_.length) { setReview([]); setMsg(`🧹 Nada salvo: os ${nRep} eram repetidos.`); return; }
     const existentes = new Set(rows.map(chave));
     // parcela que já está no mês (ex.: criada automaticamente) → só atualiza valor, status, forma e dia
     const mesmaParcela = r => { const p = parcelaDe(r); if (!p) return null;
       return rows.find(x => x.mes === r.mes && parcelaDe(x)?.n === p.n && serieDe(x) === serieDe(r)) || null; };
     const atualizar = new Map();
-    review.forEach(r => { if (existentes.has(chave(r))) return; const x = mesmaParcela(r); if (x) atualizar.set(x.id, r); });
-    const novos = review.filter(r => !existentes.has(chave(r)) && !mesmaParcela(r)).map((r, i) => marcar({ ...r, ord: Date.now() + i }));
-    const repetidos = review.length - novos.length - atualizar.size;
+    review_.forEach(r => { if (existentes.has(chave(r))) return; const x = mesmaParcela(r); if (x) atualizar.set(x.id, r); });
+    const novos = review_.filter(r => !existentes.has(chave(r)) && !mesmaParcela(r)).map((r, i) => marcar({ ...r, ord: Date.now() + i }));
+    const repetidos = review_.length - novos.length - atualizar.size;
     setRows(rs => sortRows([...rs.map(x => { const r = atualizar.get(x.id);
       return r ? marcar(normalize({ ...x, valor:r.valor, status:r.status, forma:r.forma, dia:r.dia || x.dia, auto:false })) : x; }), ...novos]));
     setDestaque(new Set([...novos.map(r => r.id), ...atualizar.keys()]));
@@ -2891,6 +2901,7 @@ function FinanceiroApp({ senha, sair }) {
     const lados = nEmp && nPes ? ` — ${nEmp} na 🏢 Empresa e ${nPes} no 🏠 Pessoal` : "";
     setMsg(`✅ ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} salvo${novos.length !== 1 ? "s" : ""}${lados}${onde ? ` (${onde})` : ""}. Eles estão destacados em amarelo.`
       + (repetidos ? ` ${repetidos} já existia${repetidos > 1 ? "m" : ""} e não ${repetidos > 1 ? "foram duplicados" : "foi duplicado"}.` : "")
+      + (nRep ? ` 🧹 ${nRep} repetido${nRep > 1 ? "s" : ""} (riscado${nRep > 1 ? "s" : ""}) não ${nRep > 1 ? "foram salvos" : "foi salvo"}.` : "")
       + (atualizar.size ? ` ${atualizar.size} parcela${atualizar.size > 1 ? "s" : ""} já estava${atualizar.size > 1 ? "m" : ""} no mês e ${atualizar.size > 1 ? "foram atualizadas" : "foi atualizada"} (sem duplicar).` : ""));
     setReview([]);
   }
@@ -3058,7 +3069,7 @@ function FinanceiroApp({ senha, sair }) {
         {review.length > 0 && (
           <div style={{ background:P.papel, border:`2px solid ${P.roxo2}`, borderRadius:12, marginBottom:20, overflow:"hidden" }}>
             <div style={{ background:P.roxo2, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <b style={{ fontSize:12, letterSpacing:".06em", textTransform:"uppercase" }}>🔎 Confira o que a IA leu ({review.length})</b>
+              <b style={{ fontSize:12, letterSpacing:".06em", textTransform:"uppercase" }}>🔎 Confira o que a IA leu ({review.filter(r => !r.repetido).length}{nRepRev ? ` · ${nRepRev} repetido${nRepRev > 1 ? "s" : ""}` : ""})</b>
               <div style={{ marginLeft:"auto", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
                 <select value="" onChange={e => { const v = e.target.value; if (v) setReview(rv => rv.map(r => normalize({ ...r, mes:v }))); }}
                   style={{ background:"rgba(255,255,255,.14)", border:"1px solid rgba(255,255,255,.22)", color:"#fff", borderRadius:8,
@@ -3068,11 +3079,15 @@ function FinanceiroApp({ senha, sair }) {
                 </select>
                 <HeadBtn onClick={() => setReview(rv => rv.map(r => trocarLado(r, "empresa")))}>🏢 Tudo Empresa</HeadBtn>
                 <HeadBtn onClick={() => setReview(rv => rv.map(r => trocarLado(r, "pessoal")))}>🏠 Tudo Pessoal</HeadBtn>
+                {nRepRev > 0 && nRepRev < review.length && <HeadBtn onClick={() => setReview(rv => rv.filter(r => !r.repetido))}>🧹 Tirar repetidos</HeadBtn>}
                 <HeadBtn onClick={() => setReview([])}>Descartar</HeadBtn>
                 <button onClick={confirmar} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:8, padding:"5px 12px",
                   fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Salvar lançamentos</button>
               </div>
             </div>
+            {nRepRev > 0 && <div style={{ padding:"7px 14px", background:"#FDECEC", color:"#C0392B", fontSize:12, fontWeight:600 }}>
+              Riscados em vermelho = já estavam salvos, por isso não serão salvos de novo. Passe o mouse para ver qual é o igual. Se não for repetido, clique em <b>↩ Não é repetido</b>.
+            </div>}
             <div style={{ overflowX:"auto" }}>
               <table style={{ borderCollapse:"collapse", width:"100%", minWidth:900, fontFamily:FONT }}>
                 <thead><tr>
@@ -3080,7 +3095,7 @@ function FinanceiroApp({ senha, sair }) {
                     <th key={i} style={{ background:P.lilas, fontSize:11, fontWeight:700, padding:"6px 8px", textAlign:"left", whiteSpace:"nowrap" }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {review.map(r => {
+                  {[...review].sort((a, b) => !!a.repetido - !!b.repetido).map(r => {
                     const set = patch => setReview(rv => rv.map(x => x.id === r.id ? normalize({ ...x, ...patch }) : x));
                     const lado = espacoDe(r.secao);
                     const td = { borderBottom:`1px solid ${P.linha}`, padding:0, ...(lado === "pessoal" ? { background:"#FFF2F7" } : {}) };
@@ -3095,7 +3110,7 @@ function FinanceiroApp({ senha, sair }) {
                       </button>
                     );
                     return (
-                      <tr key={r.id} className="fin-row">
+                      <tr key={r.id} className={"fin-row" + (r.repetido ? " fin-rep" : "")} title={r.repetido || undefined}>
                         <td style={{ ...td, padding:"3px 6px" }}>
                           <div style={{ display:"inline-flex", background:"#EEE8FB", borderRadius:999, padding:2, gap:2 }}>
                             {pilula("empresa", lado === "empresa", P.roxo)}{pilula("pessoal", lado === "pessoal", "#D9578A")}
@@ -3130,7 +3145,10 @@ function FinanceiroApp({ senha, sair }) {
                             <ChipSelect field="tipo" value={r.tipo} onChange={v => set({ tipo:v })}/>
                           </div>}
                         </td>
-                        <td style={{ ...td, textAlign:"center" }}>
+                        <td style={{ ...td, textAlign:"center", whiteSpace:"nowrap" }}>
+                          {r.repetido && <button onClick={() => setReview(rv => rv.map(x => { if (x.id !== r.id) return x; const { repetido, ...resto } = x; return resto; }))}
+                            title={r.repetido} style={{ border:`1px solid #E8B4AE`, background:"#fff", color:"#C0392B", borderRadius:999, cursor:"pointer",
+                              padding:"3px 9px", fontFamily:FONT, fontSize:11, fontWeight:700, textDecoration:"none" }}>↩ Não é repetido</button>}
                           <button onClick={() => setReview(rv => rv.filter(x => x.id !== r.id))}
                             style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", padding:"4px 8px" }}>✕</button>
                         </td>
@@ -3142,7 +3160,7 @@ function FinanceiroApp({ senha, sair }) {
             </div>
             <div style={{ padding:"9px 14px", background:"#F7F4FD", fontSize:12, display:"flex", gap:20, flexWrap:"wrap" }}>
               {Object.entries(ESPACOS).map(([k, e]) => {
-                const rs = review.filter(r => espacoDe(r.secao) === k);
+                const rs = review.filter(r => !r.repetido && espacoDe(r.secao) === k);
                 return <span key={k}>{e.icone} <b>{e.nome}:</b> {rs.length} lançamento{rs.length !== 1 ? "s" : ""} · {brl(rs.reduce((t, r) => t + r.valor, 0))}</span>;
               })}
             </div>
