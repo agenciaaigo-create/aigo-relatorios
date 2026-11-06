@@ -390,6 +390,19 @@ const marcar = r => ({ ...r, upd: Date.now(), disp: r.disp || DISP, ord: r.ord |
 const igual = (a, b) => { const k = x => JSON.stringify([...x].sort((p, q) => String(p.id).localeCompare(String(q.id)))); return k(a) === k(b); };
 
 // Identifica lançamentos iguais (para não duplicar ao importar o mesmo print de novo)
+// Lançamento que já está salvo (ou já na conferência): mesmo mês, dia e valor e descrição parecida,
+// em qualquer seção (Empresa ou Pessoal). Conta um por um: duas compras iguais no mesmo dia só somem se já houver duas salvas.
+const soLetras = t => semAcento(t).replace(/[^a-z0-9]/g, "");
+const pareceMesma = (a, b) => { const x = soLetras(a), y = soLetras(b); return x === y || (x.length >= 4 && y.length >= 4 && (x.includes(y) || y.includes(x))); };
+function tirarJaSalvos(novos, salvos) {
+  const usados = new Set(), ficam = [], tirados = [];
+  for (const n of novos) {
+    const i = salvos.findIndex((s, k) => !usados.has(k) && s.mes === n.mes && (!s.dia || !n.dia || +s.dia === +n.dia)
+      && Math.abs((+s.valor || 0) - (+n.valor || 0)) < 0.005 && pareceMesma(s.descricao, n.descricao));
+    if (i >= 0) { usados.add(i); tirados.push(n); } else ficam.push(n);
+  }
+  return { ficam, tirados };
+}
 const chave = r => [r.mes, r.secao, r.dia, r.descricao.trim().toLowerCase(), r.valor.toFixed(2)].join("|");
 
 const chipOf = (field, val) => CHIPS[field]?.find(o => o[0] === val);
@@ -2825,8 +2838,10 @@ function FinanceiroApp({ senha, sair }) {
         .filter(r => r.descricao.trim() || r.valor > 0);
       if (!found.length) setMsg("⚠️ Não encontrei lançamentos nesses prints. Adicione a linha manualmente.");
       else {
-        setReview(r => { const ja = new Set(r.map(chave)); return [...r, ...found.filter(x => !ja.has(chave(x)))]; });
-        setMsg(`🔎 ${found.length} lançamento${found.length > 1 ? "s" : ""} encontrado${found.length > 1 ? "s" : ""}. Confira abaixo e clique em "Salvar lançamentos" (sem isso eles não são salvos).`);
+        const { ficam, tirados } = tirarJaSalvos(found, [...rows.filter(x => !x.auto), ...review]);
+        setReview(r => [...r, ...ficam]);
+        setMsg(!ficam.length ? `✅ Os ${found.length} lançamentos desse print já estavam salvos — nada novo para adicionar.`
+          : `🔎 ${ficam.length} lançamento${ficam.length > 1 ? "s" : ""} novo${ficam.length > 1 ? "s" : ""} encontrado${ficam.length > 1 ? "s" : ""}.${repetidosTxt(tirados.length)} Confira abaixo e clique em "Salvar lançamentos" (sem isso eles não são salvos).`);
       }
     } catch (e) { setMsg("⚠️ Erro: " + (e.message || String(e))); }
     setReading(false);
@@ -2834,6 +2849,7 @@ function FinanceiroApp({ senha, sair }) {
   }
 
   // CSV do banco → vai para "Confira o que foi lido", igual aos prints (sem IA)
+  const repetidosTxt = n => n ? ` 🧹 ${n} já estava${n > 1 ? "m" : ""} salvo${n > 1 ? "s" : ""} e ${n > 1 ? "foram tirados" : "foi tirado"} automaticamente.` : "";
   async function importarCSV(arqs) {
     let total = [], pag = 0, est = 0, ent = 0, ruins = 0;
     for (const f of arqs) {
@@ -2844,10 +2860,12 @@ function FinanceiroApp({ senha, sair }) {
         descricao:x.descricao, valor:x.valor, forma:"Nubank", status:"pago", info:x.info, categoria:"" })));
     }
     if (!total.length) { setMsg(ruins ? "⚠️ Não reconheci esse CSV. Ele precisa ter as colunas de data, descrição e valor (como o do Nubank)." : "⚠️ Nenhum gasto encontrado no CSV."); return; }
-    setReview(r => { const ja = new Set(r.map(chave)); return [...r, ...total.filter(x => !ja.has(chave(x)))]; });
+    const { ficam, tirados } = tirarJaSalvos(total, [...rows.filter(x => !x.auto), ...review]);
+    if (!ficam.length) { setMsg(`✅ Todos os ${total.length} gastos desse CSV já estavam salvos — nada novo para adicionar.`); return; }
+    setReview(r => [...r, ...ficam]);
     const extras = [pag ? `${pag} pagamento${pag > 1 ? "s" : ""} de fatura ignorado${pag > 1 ? "s" : ""}` : "", est ? `${est} estorno${est > 1 ? "s" : ""} cancelado${est > 1 ? "s" : ""} com a compra` : "",
       ent ? `${ent} entrada${ent > 1 ? "s" : ""} ignorada${ent > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ");
-    setMsg(`🔎 CSV lido sem IA: ${total.length} gasto${total.length > 1 ? "s" : ""}${extras ? ` (${extras})` : ""}. Confira abaixo, escolha 🏢 Empresa ou 🏠 Pessoal e clique em "Salvar lançamentos".`);
+    setMsg(`🔎 CSV lido sem IA: ${ficam.length} gasto${ficam.length > 1 ? "s" : ""} novo${ficam.length > 1 ? "s" : ""}${extras ? ` (${extras})` : ""}.${repetidosTxt(tirados.length)} Confira abaixo, escolha 🏢 Empresa ou 🏠 Pessoal e clique em "Salvar lançamentos".`);
   }
 
   function confirmar() {
