@@ -575,6 +575,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const { title, cols } = SECTIONS[secao];
   const pago = rows.filter(r => r.status === "pago").reduce((s, r) => s + r.valor, 0);
   const naoPago = rows.filter(r => r.status !== "pago").reduce((s, r) => s + r.valor, 0);
+  const dividir = espacoDe(secao) === "pessoal";   // pessoal: as contas são divididas com o marido
   const total = pago + naoPago;
   const rec = secao === "receita";   // Receitas num roxo um pouco mais claro, para separar do que sai
   const claro = rec || secao === "p_casa";
@@ -676,18 +677,25 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
         <Total label={rec ? "Recebido" : "Pagos"} value={pago} color={P.verde}/>
         {rec ? <Total label="20% empresa" value={total * .2} color={P.tinta}/>
              : <Total label="Não pago" value={naoPago} color={P.vermelho} highlight={naoPago > 0}/>}
-        <Total label="Total" value={total} color={P.tinta}/>
+        <Total label="Total" value={total} color={P.tinta} metade={dividir}/>
       </div>
     </div>
   );
 }
 
-function Total({ label, value, color, highlight }) {
+// "÷ 2 · R$ x cada" — no Pessoal as contas são divididas por dois
+function Metade({ valor, grande }) {
+  const oculto = useContext(OcultarCtx);
+  return <div style={{ fontSize: grande ? 11 : 10.5, fontWeight:700, color:"#8A5BD6", marginTop:2, whiteSpace:"nowrap" }}>
+    ÷ 2 · {oculto ? esconderValores(brl(valor / 2)) : brl(valor / 2)} cada</div>;
+}
+function Total({ label, value, color, highlight, metade }) {
   return (
     <div style={{ flex:"1 1 110px", padding:"7px 12px", borderRight:`1px solid ${P.linha}`,
       background: highlight ? "#FFF4F4" : "transparent" }}>
       <div style={{ fontSize:10, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".07em" }}>{label}</div>
       <div style={{ fontSize:13.5, fontWeight:800, color, marginTop:1 }}>{brl(value)}</div>
+      {metade && value > 0 && <Metade valor={value}/>}
     </div>
   );
 }
@@ -759,7 +767,7 @@ function Linha({ valores, cor, w = 110, h = 34 }) {
   );
 }
 
-function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha }) {
+function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha, metade }) {
   const oculto = useContext(OcultarCtx);
   return (
     <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px",
@@ -767,6 +775,7 @@ function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha }) {
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
         <div style={{ fontSize:21, fontWeight:900, color: oculto ? P.tinta : (cor || P.tinta), marginTop:4, whiteSpace:"nowrap" }}>{oculto ? esconderValores(value) : value}</div>
+        {metade > 0 && <Metade valor={metade} grande/>}
         <div className="fin-oculto" style={{ marginTop:3 }}>{variacao}</div>
         {sub && <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{oculto ? esconderValores(sub) : sub}</div>}
       </div>
@@ -1180,7 +1189,7 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
   return (
     <>
       <div className="fin-kpis">
-        <KpiLinha label="Gastos do mês" value={brl(total)}
+        <KpiLinha label="Gastos do mês" value={brl(total)} metade={total}
           variacao={<Variacao atual={total} anterior={analise.tAnt.gastos} bomSubir={false}/>}
           sub={total ? <>casa = <b style={{ color:P.tinta }}>{(casa / total * 100).toFixed(0)}%</b> dos gastos</> : null}
           serie={analise.serie.map(d => d.gastos)} corLinha={P.roxo2}/>
