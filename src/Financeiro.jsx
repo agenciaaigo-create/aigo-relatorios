@@ -2198,6 +2198,110 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
 }
 
 
+
+// ── 💾 Backup completo (Empresa, Pessoal, Investimentos, Clientes e cores), com senha opcional ──
+const ULT_BACKUP = "aigo-fin-ultimo-backup";
+const b64 = u8 => { let t = ""; for (let i = 0; i < u8.length; i += 0x8000) t += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(t); };
+const deB64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+async function chaveDaSenha(senha, salt) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(senha), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:250000, hash:"SHA-256" }, base, { name:"AES-GCM", length:256 }, false, ["encrypt", "decrypt"]);
+}
+async function cifrar(texto, senha) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const c = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, await chaveDaSenha(senha, salt), new TextEncoder().encode(texto));
+  return { salt: b64(salt), iv: b64(iv), dados: b64(new Uint8Array(c)) };
+}
+async function decifrar(o, senha) {
+  try { const t = await crypto.subtle.decrypt({ name:"AES-GCM", iv: deB64(o.iv) }, await chaveDaSenha(senha, deB64(o.salt)), deB64(o.dados)); return new TextDecoder().decode(t); }
+  catch { throw new Error("Senha errada."); }
+}
+const diasSemBackup = () => { try { const t = +localStorage.getItem(ULT_BACKUP); return t ? Math.floor((Date.now() - t) / 864e5) : null; } catch { return null; } };
+const toque = () => { try { return matchMedia("(pointer:coarse)").matches; } catch { return false; } };
+
+function LembreteBackup({ onFazer }) {
+  const d = diasSemBackup();
+  if (d !== null && d < 30) return null;
+  return (
+    <div style={{ background:"#FFF7E0", border:"1px solid #F2DC9B", color:"#7A5A00", borderRadius:12, padding:"9px 14px", fontSize:12.5, marginBottom:12,
+      display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+      <span style={{ flex:1 }}>💾 {d === null ? "Você ainda não fez um backup completo neste aparelho." : `Faz ${d} dias desde o último backup.`} Guarde uma cópia no Google Drive para ter tudo para sempre.</span>
+      <Btn onClick={onFazer} style={{ padding:"5px 12px", fontSize:11.5 }}>Fazer backup agora</Btn>
+    </div>
+  );
+}
+
+function JanelaBackup({ modo, dados, arquivo, onRestaurar, onFechar }) {
+  const [senha, setSenha] = useState(""), [senha2, setSenha2] = useState("");
+  const [usarSenha, setUsarSenha] = useState(true);
+  const [feito, setFeito] = useState(false), [erro, setErro] = useState(""), [ocupado, setOcupado] = useState(false);
+  const nome = `backup-financeiro-${hojeISO()}.json`;
+  const conta = { lanc: dados.rows.length, inv: Object.values(dados.invest).filter(x => !x.apagado).length,
+    cli: Object.entries(dados.clientes).filter(([k, c]) => k !== "_meta" && !c.apagado).length };
+  async function montar() {
+    const corpo = { rows: dados.rows, invest: dados.invest, clientes: dados.clientes, cores: dados.cores };
+    const cab = { app:"aigo-financeiro", versao:2, criado:new Date().toISOString(), resumo:conta };
+    return JSON.stringify(usarSenha ? { ...cab, cifrado:true, ...(await cifrar(JSON.stringify(corpo), senha)) } : { ...cab, ...corpo }, null, usarSenha ? 0 : 1);
+  }
+  async function salvar(compartilhar) {
+    setErro(""); setOcupado(true);
+    try {
+      const txt = await montar();
+      if (compartilhar) {
+        const f = new File([txt], nome, { type:"application/json" });
+        try { await navigator.share({ files:[f], title:"Backup ai.go Financeiro" }); }
+        catch (e) { if (e?.name === "AbortError") { setOcupado(false); return; } downloadFile(nome, txt, "application/json"); }
+      } else downloadFile(nome, txt, "application/json");
+      try { localStorage.setItem(ULT_BACKUP, String(Date.now())); } catch {}
+      setFeito(true);
+    } catch (e) { setErro(e.message || String(e)); }
+    setOcupado(false);
+  }
+  async function restaurar() {
+    setErro(""); setOcupado(true);
+    try { onRestaurar(JSON.parse(await decifrar(arquivo, senha)), arquivo); } catch (e) { setErro(e.message); }
+    setOcupado(false);
+  }
+  const podeCompartilhar = toque() && typeof navigator.canShare === "function" && navigator.canShare({ files:[new File(["{}"], "x.json", { type:"application/json" })] });
+  const senhaOk = !usarSenha || (senha.length >= 4 && senha === senha2);
+  if (modo === "restaurar") return (
+    <Janela titulo="🔒 Backup com senha" onFechar={onFechar}>
+      <p style={{ fontSize:12.5, color:P.suave, marginTop:0 }}>Backup de {arquivo.criado ? new Date(arquivo.criado).toLocaleDateString("pt-BR") : "?"}. Digite a senha que você escolheu quando fez o backup.</p>
+      <Campo rotulo="SENHA DO BACKUP"><input type="password" autoFocus value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === "Enter" && senha && restaurar()} style={campoSt}/></Campo>
+      {erro && <div style={{ color:P.vermelho, fontSize:12, marginBottom:8 }}>⚠️ {erro}</div>}
+      <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!senha || ocupado} onClick={restaurar}>{ocupado ? "Abrindo…" : "Restaurar"}</Btn></div>
+    </Janela>
+  );
+  return (
+    <Janela titulo="💾 Backup completo" onFechar={onFechar}>
+      {feito ? <>
+        <p style={{ fontSize:13, marginTop:0 }}>✅ Backup pronto: <b>{nome}</b></p>
+        <p style={{ fontSize:12.5, color:P.suave }}>Agora guarde no Google Drive, de preferência numa pasta chamada <b>Backup Financeiro</b>.
+          {podeCompartilhar ? " Se você escolheu o Drive na tela de compartilhar, já está lá." : " Abra o Drive, entre na pasta e arraste o arquivo que acabou de baixar (fica em Downloads)."}</p>
+        {usarSenha && <p style={{ fontSize:12, color:"#7A5A00", background:"#FFF7E0", borderRadius:8, padding:"7px 10px" }}>🔒 Anote a senha num lugar seguro. Sem ela não dá para abrir este backup — nem eu consigo recuperar.</p>}
+        <div style={{ display:"flex", gap:8 }}>
+          <a href="https://drive.google.com/drive/my-drive" target="_blank" rel="noreferrer" style={{ textDecoration:"none" }}><Btn>Abrir Google Drive ↗</Btn></a>
+          <Btn primary style={{ marginLeft:"auto" }} onClick={onFechar}>Pronto</Btn>
+        </div>
+      </> : <>
+        <p style={{ fontSize:12.5, color:P.suave, marginTop:0 }}>Um arquivo só com tudo: {conta.lanc} lançamentos (🏢 Empresa e 🏠 Pessoal), {conta.inv} ite{conta.inv === 1 ? "m" : "ns"} de 💰 Investimentos (e as movimentações), {conta.cli} cliente{conta.cli === 1 ? "" : "s"} e as suas cores.</p>
+        <label style={{ display:"flex", gap:8, alignItems:"center", fontSize:13, fontWeight:700, marginBottom:10, cursor:"pointer" }}>
+          <input type="checkbox" checked={usarSenha} onChange={e => setUsarSenha(e.target.checked)}/> 🔒 Proteger com senha</label>
+        {usarSenha && <>
+          <Campo rotulo="SENHA DO BACKUP" dica="Pelo menos 4 caracteres. Pode ser diferente da senha do site."><input type="password" value={senha} onChange={e => setSenha(e.target.value)} style={campoSt}/></Campo>
+          <Campo rotulo="REPITA A SENHA"><input type="password" value={senha2} onChange={e => setSenha2(e.target.value)} style={campoSt}/></Campo>
+          {senha2 && senha !== senha2 && <div style={{ color:P.vermelho, fontSize:12, marginBottom:8 }}>As senhas não estão iguais.</div>}
+        </>}
+        {erro && <div style={{ color:P.vermelho, fontSize:12, marginBottom:8 }}>⚠️ {erro}</div>}
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
+          {podeCompartilhar && <Btn primary disabled={!senhaOk || ocupado} onClick={() => salvar(true)}>📤 Salvar no Drive / Arquivos</Btn>}
+          <Btn primary={!podeCompartilhar} disabled={!senhaOk || ocupado} onClick={() => salvar(false)}>{ocupado ? "Preparando…" : "⬇ Baixar backup"}</Btn>
+        </div>
+      </>}
+    </Janela>
+  );
+}
+
 // ── Clientes (aba Geral da Empresa): quem paga e quanto, como na sua planilha ──
 function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
   const lista = Object.entries(clientes).filter(([id, c]) => id !== "_meta" && !c.apagado).map(([id, c]) => ({ id, ...c }))
@@ -2623,6 +2727,7 @@ function FinanceiroApp({ senha, sair }) {
   const [drag, setDrag] = useState(false);
   const fileRef = useRef();
   const backupRef = useRef();
+  const [backupJan, setBackupJan] = useState(null);
 
   useEffect(() => { document.title = "ai.go — Financeiro"; }, []);
   // Salva e confere lendo de volta; se o navegador não guardar, avisa na tela
@@ -2943,20 +3048,48 @@ function FinanceiroApp({ senha, sair }) {
     setMsg(`↩ Importação desfeita: ${n} lançamento${n !== 1 ? "s" : ""} removido${n !== 1 ? "s" : ""}.`);
   }
 
+  // junta o backup com o que já existe: nada é apagado; em cada item vale a versão mais nova
+  function aplicarBackup(corpo, cab = {}) {
+    const arr = Array.isArray(corpo) ? corpo : corpo.rows || [];
+    const ids = new Set(rows.map(r => r.id));
+    const novos = arr.map(normalize).filter(r => !ids.has(r.id));
+    setRows(rs => { const ja = new Set(rs.map(r => r.id)); return sortRows([...rs, ...novos.filter(r => !ja.has(r.id))]); });
+    const juntar = (atual, bk) => { const n = { ...atual }; let k = 0;
+      Object.entries(bk || {}).forEach(([id, x]) => { if (x && typeof x === "object" && (!n[id] || (+x.upd || 0) > (+n[id].upd || 0))) { n[id] = x; k++; } }); return [n, k]; };
+    let ki = 0, kc = 0;
+    if (!Array.isArray(corpo)) {
+      const [ni, a] = juntar(invest, corpo.invest); ki = a; if (a) setInvest(ni);
+      const [nc, b] = juntar(clientes, corpo.clientes); kc = b; if (b) setClientes(nc);
+      const [nr, c] = juntar(cores, corpo.cores); if (c) setCores(nr);
+    }
+    setBackupJan(null);
+    const quando = cab.criado ? ` de ${new Date(cab.criado).toLocaleDateString("pt-BR")}` : "";
+    setMsg(`✅ Backup${quando} restaurado: ${novos.length} lançamento${novos.length !== 1 ? "s" : ""} trazido${novos.length !== 1 ? "s" : ""} de volta`
+      + (ki ? `, ${ki} ite${ki !== 1 ? "ns" : "m"} de investimentos` : "") + (kc ? `, ${kc} cliente${kc !== 1 ? "s" : ""}` : "")
+      + ". O que já estava aqui continua igual.");
+  }
   function importBackup(file) {
     const fr = new FileReader();
     fr.onload = () => {
       try {
-        const arr = JSON.parse(fr.result);
-        if (!Array.isArray(arr)) throw new Error("formato inválido");
-        setRows(rs => { const ids = new Set(rs.map(r => r.id)); return sortRows([...rs, ...arr.map(normalize).filter(r => !ids.has(r.id))]); });
-        setMsg("✅ Backup restaurado.");
+        const o = JSON.parse(fr.result);
+        if (Array.isArray(o)) return aplicarBackup(o);
+        if (o?.app !== "aigo-financeiro") throw new Error("esse arquivo não é um backup do ai.go Financeiro");
+        if (o.cifrado) return setBackupJan({ modo:"restaurar", arquivo:o });
+        aplicarBackup(o, o);
       } catch (e) { setMsg("⚠️ Backup inválido: " + e.message); }
     };
     fr.readAsText(file);
   }
 
   const titulo = aba === "geral" ? `Geral ${ano}` : `${MESES[aba]} ${ano}`;
+  const barraBackup = <>
+    <span>{nuvem.estado === "ok" ? "Os dados ficam salvos na nuvem e sincronizam entre os seus aparelhos." : "Os dados ficam salvos neste navegador."}</span>
+    <Btn onClick={() => setBackupJan({ modo:"fazer" })} style={{ padding:"6px 12px", fontSize:11 }}>💾 Fazer backup completo</Btn>
+    <Btn onClick={() => backupRef.current?.click()} style={{ padding:"6px 12px", fontSize:11 }}>Restaurar backup</Btn>
+    <input ref={backupRef} type="file" accept="application/json,.json" hidden
+      onChange={e => { e.target.files[0] && importBackup(e.target.files[0]); e.target.value = ""; }}/>
+  </>;
 
   const tab = active => ({
     padding:"10px 16px", border:"none", borderTop:`3px solid ${active ? P.roxo : "transparent"}`,
@@ -3028,9 +3161,11 @@ function FinanceiroApp({ senha, sair }) {
           </div>
           {msg && <div style={{ background:"#EEF8F0", border:"1px solid #CDEBD3", color:P.verde, borderRadius:12, padding:"10px 14px", fontSize:12.5, marginBottom:12,
             display:"flex", gap:10 }}><span style={{ flex:1 }}>{msg}</span><button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave }}>✕</button></div>}
+          <LembreteBackup onFazer={() => setBackupJan({ modo:"fazer" })}/>
           <Investimentos invest={invest} setMsg={setMsg} ano={ano} aba={aba} onAba={setAba}
             onSalvar={(id, x) => setInvest(cs => ({ ...cs, [id]: { ...x, upd:Date.now() } }))}
             onApagar={id => setInvest(cs => ({ ...cs, [id]: { ...cs[id], apagado:true, upd:Date.now() } }))}/>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:24, fontSize:11, color:P.suave }}>{barraBackup}</div>
         </> : <>
         {/* faixa do mês + ações */}
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
@@ -3050,6 +3185,7 @@ function FinanceiroApp({ senha, sair }) {
           <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints ou o CSV do banco aqui"}</b> · PIX, comprovantes, extratos, faturas, CSV do Nubank · {pessoal ? "a IA separa em Fixos, Casa e Parcelas e extras" : "a IA separa em Fixos, Variáveis, Parcelas e Receitas"}
         </div>
 
+        <LembreteBackup onFazer={() => setBackupJan({ modo:"fazer" })}/>
         {msg && (
           <div style={{ fontSize:12, padding:"10px 14px", borderRadius:10, marginBottom:14, wordBreak:"break-word",
             background: msg.startsWith("⚠️") ? "#FFF0F0" : msg.startsWith("🔎") ? P.lilasClaro : "#EEF8F0", color: msg.startsWith("⚠️") ? P.vermelho : msg.startsWith("🔎") ? P.roxo : P.verde,
@@ -3248,14 +3384,11 @@ function FinanceiroApp({ senha, sair }) {
         )}
 
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:24, fontSize:11, color:P.suave }}>
-          <span>{nuvem.estado === "ok" ? "Os dados ficam salvos na nuvem e sincronizam entre os seus aparelhos." : "Os dados ficam salvos neste navegador."}</span>
-          <Btn onClick={() => downloadFile(`backup-financeiro-${hojeISO()}.json`, JSON.stringify(rows, null, 2), "application/json")}
-            style={{ padding:"6px 12px", fontSize:11 }}>Fazer backup</Btn>
-          <Btn onClick={() => backupRef.current?.click()} style={{ padding:"6px 12px", fontSize:11 }}>Restaurar backup</Btn>
-          <input ref={backupRef} type="file" accept="application/json" hidden
-            onChange={e => { e.target.files[0] && importBackup(e.target.files[0]); e.target.value = ""; }}/>
+          {barraBackup}
         </div>
         </>}
+        {backupJan && <JanelaBackup modo={backupJan.modo} arquivo={backupJan.arquivo} dados={{ rows, invest, clientes, cores }}
+          onRestaurar={aplicarBackup} onFechar={() => setBackupJan(null)}/>}
       </div>
 
       {selecionados.length > 0 && (
