@@ -2220,12 +2220,14 @@ const diasSemBackup = () => { try { const t = +localStorage.getItem(ULT_BACKUP);
 const toque = () => { try { return matchMedia("(pointer:coarse)").matches; } catch { return false; } };
 
 function LembreteBackup({ onFazer }) {
-  const d = diasSemBackup();
-  if (d !== null && d < 30) return null;
+  // backup anual: lembra só em dezembro (e até 15/jan), se ainda não fez nas últimas semanas
+  const d = diasSemBackup(), hj = new Date(), mes = hj.getMonth();
+  if (!(mes === 11 || (mes === 0 && hj.getDate() <= 15)) || (d !== null && d < 45)) return null;
+  const anoB = mes === 11 ? hj.getFullYear() : hj.getFullYear() - 1;
   return (
     <div style={{ background:"#FFF7E0", border:"1px solid #F2DC9B", color:"#7A5A00", borderRadius:12, padding:"9px 14px", fontSize:12.5, marginBottom:12,
       display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-      <span style={{ flex:1 }}>💾 {d === null ? "Você ainda não fez um backup completo neste aparelho." : `Faz ${d} dias desde o último backup.`} Guarde uma cópia no Google Drive para ter tudo para sempre.</span>
+      <span style={{ flex:1 }}>💾 Hora do backup anual de {anoB}! Guarde uma cópia no Google Drive (ex.: "Backup {anoB}") para ter tudo para sempre.</span>
       <Btn onClick={onFazer} style={{ padding:"5px 12px", fontSize:11.5 }}>Fazer backup agora</Btn>
     </div>
   );
