@@ -674,9 +674,9 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
         </table>
       </div>
       <div style={{ display:"flex", flexWrap:"wrap", borderTop:`1px solid ${P.linha}` }}>
-        <Total label={rec ? "Recebido" : "Pagos"} value={pago} color={P.verde} metade={dividir}/>
+        <Total label={rec ? "Recebido" : "Pagos"} value={pago} color={P.verde}/>
         {rec ? <Total label="20% empresa" value={total * .2} color={P.tinta}/>
-             : <Total label="Não pago" value={naoPago} color={P.vermelho} highlight={naoPago > 0} metade={dividir}/>}
+             : <Total label="Não pago" value={naoPago} color={P.vermelho} highlight={naoPago > 0}/>}
         <Total label="Total" value={total} color={P.tinta} metade={dividir}/>
       </div>
     </div>
@@ -1193,13 +1193,13 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
           variacao={<Variacao atual={total} anterior={analise.tAnt.gastos} bomSubir={false}/>}
           sub={total ? <>casa = <b style={{ color:P.tinta }}>{(casa / total * 100).toFixed(0)}%</b> dos gastos</> : null}
           serie={analise.serie.map(d => d.gastos)} corLinha={P.roxo2}/>
-        <KpiLinha label="Já pago" value={brl(pago)} cor={P.verde} metade={pago}
+        <KpiLinha label="Já pago" value={brl(pago)} cor={P.verde}
           variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{pagas} de {gastos.length} contas</span>}/>
-        <KpiLinha label="Falta pagar" value={brl(total - pago)} cor={total - pago ? P.vermelho : P.tinta} metade={total - pago}
+        <KpiLinha label="Falta pagar" value={brl(total - pago)} cor={total - pago ? P.vermelho : P.tinta}
           variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.tinta }}>
             {analise.abertos.length ? `${analise.abertos.length} conta${analise.abertos.length > 1 ? "s" : ""}` : "Tudo pago ✓"}
             {analise.proxima ? ` · próxima: ${analise.proxima.descricao || "sem nome"} dia ${analise.proxima.dia}` : ""}</span>}/>
-        <KpiLinha label="Parcelas em aberto" value={brl(parc.falta)} metade={parc.falta}
+        <KpiLinha label="Parcelas em aberto" value={brl(parc.falta)}
           variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>
             {parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}{parc.terminam ? ` · ${parc.terminam} termina${parc.terminam > 1 ? "m" : ""} este mês` : ""}</span>}/>
       </div>
