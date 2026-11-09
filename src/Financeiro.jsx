@@ -575,7 +575,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const { title, cols } = SECTIONS[secao];
   const pago = rows.filter(r => r.status === "pago").reduce((s, r) => s + r.valor, 0);
   const naoPago = rows.filter(r => r.status !== "pago").reduce((s, r) => s + r.valor, 0);
-  const dividir = espacoDe(secao) === "pessoal";   // pessoal: as contas são divididas com o marido
+  const dividir = secao === "p_casa";   // Gastos Casa: dividido com o marido
   const total = pago + naoPago;
   const rec = secao === "receita";   // Receitas num roxo um pouco mais claro, para separar do que sai
   const claro = rec || secao === "p_casa";
@@ -1189,7 +1189,7 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
   return (
     <>
       <div className="fin-kpis">
-        <KpiLinha label="Gastos do mês" value={brl(total)} metade={total}
+        <KpiLinha label="Gastos do mês" value={brl(total)}
           variacao={<Variacao atual={total} anterior={analise.tAnt.gastos} bomSubir={false}/>}
           sub={total ? <>casa = <b style={{ color:P.tinta }}>{(casa / total * 100).toFixed(0)}%</b> dos gastos</> : null}
           serie={analise.serie.map(d => d.gastos)} corLinha={P.roxo2}/>
