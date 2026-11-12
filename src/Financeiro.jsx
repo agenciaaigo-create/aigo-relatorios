@@ -397,13 +397,21 @@ const igual = (a, b) => { const k = x => JSON.stringify([...x].sort((p, q) => St
 // em qualquer seção (Empresa ou Pessoal). Conta um por um: duas compras iguais no mesmo dia só somem se já houver duas salvas.
 const soLetras = t => semAcento(t).replace(/[^a-z0-9]/g, "");
 const pareceMesma = (a, b) => { const x = soLetras(a), y = soLetras(b); return x === y || (x.length >= 4 && y.length >= 4 && (x.includes(y) || y.includes(x))); };
+// data do lançamento em dias (sem dia → meio do mês); serve para aceitar 1–3 dias de diferença, até entre meses
+const diaAbs = r => { const [y, m] = r.mes.split("-").map(Number); return Date.UTC(y, m - 1, +r.dia || 15) / 864e5; };
 function tirarJaSalvos(novos, salvos) {
   const usados = new Set(), ficam = [], tirados = [];
+  // parcelas diferentes da mesma compra (1/3, 2/3…) têm o mesmo nome e valor: não são repetidas
+  const mesmoValor = (s, n) => Math.abs((+s.valor || 0) - (+n.valor || 0)) < 0.005 && !(parcelaDe(s) && parcelaDe(n) && parcelaDe(s).n !== parcelaDe(n).n);
+  const perto = (s, n) => s.dia && n.dia ? Math.abs(diaAbs(s) - diaAbs(n)) <= 3 : s.mes === n.mes;
+  const igual = (s, n) => mesmoValor(s, n) && (
+    (perto(s, n) && pareceMesma(s.descricao, n.descricao))                       // mesmo gasto, data igual ou bem perto
+    || (s.mes === n.mes && s.dia && +s.dia === +n.dia && !parcelaDe(n)));         // mesmo dia e valor, mas você mudou o nome
   for (const n of novos) {
-    const i = salvos.findIndex((s, k) => !usados.has(k) && s.mes === n.mes && (!s.dia || !n.dia || +s.dia === +n.dia)
-      && Math.abs((+s.valor || 0) - (+n.valor || 0)) < 0.005 && pareceMesma(s.descricao, n.descricao));
+    let i = salvos.findIndex((s, k) => !usados.has(k) && mesmoValor(s, n) && s.mes === n.mes && +s.dia === +n.dia && pareceMesma(s.descricao, n.descricao));
+    if (i < 0) i = salvos.findIndex((s, k) => !usados.has(k) && igual(s, n));
     if (i >= 0) { usados.add(i); const s = salvos[i];
-      tirados.push({ ...n, repetido: `Já salvo: ${s.descricao} · dia ${s.dia || "?"}/${s.mes.slice(5)} · ${ESPACOS[espacoDe(s.secao)].icone} ${SECTIONS[s.secao]?.title || ""}` }); }
+      tirados.push({ ...n, repetido: `Já salvo: ${s.descricao || "(sem nome)"} · dia ${s.dia || "?"}/${s.mes.slice(5)} · ${brl(s.valor)} · ${ESPACOS[espacoDe(s.secao)].icone} ${SECTIONS[s.secao]?.title || ""}` }); }
     else ficam.push(n);
   }
   const marcados = novos.map(n => tirados.find(t => t.id === n.id) || n);
@@ -3480,7 +3488,10 @@ function FinanceiroApp({ senha, sair }) {
                           </select>
                         </td>
                         <td style={{ ...td, width:50 }}><TextCell value={r.dia} align="center" onChange={v => set({ dia:v.replace(/\D/g, "").slice(0, 2) })}/></td>
-                        <td style={td}><TextCell value={r.descricao} bold onChange={v => set({ descricao:v })}/></td>
+                        <td style={td}><div style={{ display:"flex", alignItems:"center" }}><div style={{ flex:1, minWidth:0 }}><TextCell value={r.descricao} bold onChange={v => set({ descricao:v })}/></div>
+                          {!r.repetido && parcelaDe(r) && rows.some(x => x.mes === r.mes && parcelaDe(x)?.n === parcelaDe(r).n && serieDe(x) === serieDe(r)) &&
+                            <span title="Essa parcela já estava no mês (criada automaticamente). Ao salvar, ela é atualizada — não duplica." style={{ background:"#E4ECFB", color:"#1F5FBF",
+                              borderRadius:999, padding:"1px 7px", fontSize:10, fontWeight:700, whiteSpace:"nowrap", marginRight:4 }}>🔁 atualiza a parcela</span>}</div></td>
                         <td style={{ ...td, width:110 }}><MoneyCell value={r.valor} onChange={v => set({ valor:v })}/></td>
                         <td style={td}><ChipSelect field="forma" value={r.forma} onChange={v => set({ forma:v })}/></td>
                         <td style={td}><ChipSelect field="status" value={r.status} onChange={v => set({ status:v })}/></td>
