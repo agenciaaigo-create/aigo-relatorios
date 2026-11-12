@@ -2599,7 +2599,7 @@ const TEMA_DATA = { natal:["#B3261E", "#6E1410", "#FDECEA"], pascoa:["#7B4FC9", 
   "black friday":["#1E1B24", "#433D4D", "#F1F0F4"], halloween:["#D35400", "#8E3B00", "#FDF0E6"], carnaval:["#8E24AA", "#C2185B", "#F6EAFB"], "festa junina":["#C0582A", "#8A3A16", "#FCF0E8"] };
 const temaData = n => TEMA_DATA[semAcento(n)] || [P.roxo, P.roxo2, "#F3EEFD"];
 
-function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
+function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas, onEditRow, onAddRow, onRemoveRow }) {
   const salvas = clientes._datas?.info;
   const lista = salvas ? salvas.split("|").filter(Boolean) : DATAS_PADRAO;
   const conta = (n, a) => { const rs = rows.filter(r => r.mes.startsWith(`${a}-`) && daData(r, n));
@@ -2616,18 +2616,6 @@ function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
     const nome = n[0].toUpperCase() + n.slice(1); onSalvarDatas([...lista, nome]); setAberta(nome);
   }
   const tirar = n => window.confirm(`Tirar "${n}" desta aba? (os lançamentos não são apagados)`) && onSalvarDatas(lista.filter(x => x !== n));
-  const Lista = ({ titulo, l, cor }) => !l.length ? null : (
-    <div style={{ flex:"1 1 300px", minWidth:0 }}>
-      <div style={{ fontSize:11, fontWeight:800, color:cor, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>{titulo}</div>
-      {[...l].sort((a, b) => a.mes.localeCompare(b.mes) || (+a.dia || 0) - (+b.dia || 0)).map(r => (
-        <div key={r.id} onClick={() => onPick(+r.mes.slice(5) - 1)} title="Abrir o mês" style={{ display:"flex", gap:10, fontSize:12.5, padding:"6px 0", borderTop:`1px solid ${P.linha}`, cursor:"pointer" }}>
-          <span style={{ color:P.suave, width:42 }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : MESES[+r.mes.slice(5) - 1].slice(0, 3)}</span>
-          <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.descricao || "(sem descrição)"}</span>
-          <b>{brl(r.valor)}</b>
-        </div>
-      ))}
-    </div>
-  );
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       {/* escolha da data: chips grandes */}
@@ -2665,7 +2653,7 @@ function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
             <button onClick={() => tirar(det.n)} title="Tirar esta data da aba" style={{ position:"absolute", top:8, right:12, border:"none", background:"none", color:"rgba(255,255,255,.75)", cursor:"pointer", fontFamily:FONT, fontSize:11 }}>✕ tirar</button>
           </div>
           {!det.rs.length ? <div style={{ padding:"22px 24px", fontSize:13, color:P.suave }}>
-              Nada lançado em {ano}{a.rs.length ? ` (em ${ano - 1}: gastou ${brl(a.g)}, entrou ${brl(a.e)})` : ""}. Para aparecer aqui, use a categoria <b>{det.n}</b> nos gastos (ou escreva "{det.n}" na descrição) e o serviço <b>{det.n}</b> nas receitas.</div> : <>
+              Nada lançado em {ano}{a.rs.length ? ` (em ${ano - 1}: gastou ${brl(a.g)}, entrou ${brl(a.e)})` : ""}. Use o botão <b>＋ Adicionar</b> abaixo, ou a categoria <b>{det.n}</b> nos meses.</div> : <>
           <div style={{ display:"flex", flexWrap:"wrap", gap:0, borderBottom:`1px solid ${P.linha}` }}>
             {[["Gastou", det.g, a.g, P.vermelho, true], ["Entrou", det.e, a.e, P.verde, false]].map(([t, v, va, cor, gasto], k) => (
               <div key={t} style={{ flex:"1 1 260px", padding:"16px 24px", borderLeft: k ? `1px solid ${P.linha}` : "none" }}>
@@ -2692,11 +2680,11 @@ function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
               <div style={{ fontSize:11, color:P.suave, marginLeft:"auto" }}><span style={{ color:P.vermelho }}>■</span> gastou &nbsp; <span style={{ color:P.verde }}>■</span> entrou</div>
             </div>
           </div>}
-          <div style={{ display:"flex", gap:28, flexWrap:"wrap", padding:"14px 24px 18px" }}>
-            <Lista titulo="Gastos" l={det.gastos} cor={P.vermelho}/>
-            <Lista titulo="Entradas" l={det.rec} cor={P.verde}/>
-          </div>
           </>}
+          <div style={{ display:"flex", flexDirection:"column", gap:14, padding:"16px 18px 18px" }}>
+            <TabelaData nome={det.n} ano={ano} l={det.gastos} cor={c1} onEdit={onEditRow} onRemove={onRemoveRow} onAdd={onAddRow}/>
+            <TabelaData nome={det.n} ano={ano} l={det.rec} cor={c1} receita onEdit={onEditRow} onRemove={onRemoveRow} onAdd={onAddRow}/>
+          </div>
         </div>
       ); })()}
 
@@ -2706,8 +2694,66 @@ function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
   );
 }
 
+// Tabela editável de uma data temática: são os mesmos lançamentos dos meses (editar aqui = editar lá)
+function TabelaData({ nome, ano, l, cor, receita, onEdit, onRemove, onAdd }) {
+  const ordem = [...l].sort((a, b) => a.mes.localeCompare(b.mes) || (+a.dia || 99) - (+b.dia || 99) || (a.ord || 0) - (b.ord || 0));
+  const pago = l.filter(r => r.status === "pago").reduce((t, r) => t + r.valor, 0), total = l.reduce((t, r) => t + r.valor, 0);
+  const th = { background:"#F1ECFB", color:P.tinta, fontSize:10.5, fontWeight:800, padding:"6px 6px", borderRight:`1px solid ${P.papel}`, whiteSpace:"nowrap", textAlign:"left" };
+  const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0 };
+  function adicionar() {
+    const hoje = new Date(), mes = hoje.getFullYear() === ano ? mesKey(ano, hoje.getMonth()) : mesKey(ano, 11);
+    if (!receita && !listaCat("empresa").includes(nome)) CAT_EXTRA.empresa = [...CAT_EXTRA.empresa, nome];
+    if (receita && !opcoesChip("servico").includes(nome)) CHIP_EXTRA.servico = [...CHIP_EXTRA.servico, nome];
+    onAdd(receita ? { secao:"receita", mes, dia: hoje.getFullYear() === ano ? hoje.getDate() : "", status:"pago", servico:nome }
+      : { secao:"extra", mes, dia: hoje.getFullYear() === ano ? hoje.getDate() : "", status:"nao_pago", categoria:nome, forma:"Pix" });
+  }
+  return (
+    <div style={{ border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background: receita ? "#EEF8F0" : "#FFF1F0", flexWrap:"wrap" }}>
+        <b style={{ fontSize:12, letterSpacing:".07em", textTransform:"uppercase", color: receita ? P.verde : P.vermelho }}>
+          {receita ? `💰 O que entrou com ${nome}` : `🛍️ Compras de ${nome}`}</b>
+        <span style={{ fontSize:11, color:P.suave }}>{l.length} {l.length === 1 ? "item" : "itens"}</span>
+        <button onClick={adicionar} style={{ marginLeft:"auto", border:"none", background:cor, color:"#fff", borderRadius:8, padding:"5px 12px",
+          fontFamily:FONT, fontSize:11.5, fontWeight:800, cursor:"pointer" }}>＋ Adicionar {receita ? "entrada" : "compra"}</button>
+      </div>
+      {l.length > 0 && <div style={{ overflowX:"auto" }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:760, fontFamily:FONT }}>
+          <thead><tr>
+            <th style={{ ...th, width:74 }}>Mês</th><th style={{ ...th, width:44, textAlign:"center" }}>Dia</th><th style={th}>Descrição</th>
+            <th style={{ ...th, width:110, textAlign:"right" }}>Valor</th><th style={{ ...th, width:120 }}>Forma</th><th style={{ ...th, width:110 }}>Status</th>
+            <th style={{ ...th, width:170 }}>{receita ? "Serviço" : "Categoria"}</th><th style={{ ...th, width:26, borderRight:"none" }}/>
+          </tr></thead>
+          <tbody>
+            {ordem.map(r => { const set = patch => onEdit(r.id, patch);
+              return (
+                <tr key={r.id} className="fin-row">
+                  <td style={td}><select className="fin-cell" value={r.mes.slice(5)} onChange={e => set({ mes:`${r.mes.slice(0, 4)}-${e.target.value}` })} style={{ ...cellBase, cursor:"pointer" }}>
+                    {MESES.map((m, i) => <option key={m} value={pad(i + 1)}>{m.slice(0, 3)}</option>)}</select></td>
+                  <td style={td}><TextCell value={r.dia} align="center" placeholder="—" onChange={v => set({ dia:v.replace(/\D/g, "").slice(0, 2) })}/></td>
+                  <td style={td}><TextCell value={r.descricao} bold placeholder={receita ? "Ex.: Ensaio família Silva" : "Ex.: Árvore, luzes, figurino…"} onChange={v => set({ descricao:v })}/></td>
+                  <td style={td}><MoneyCell value={r.valor} onChange={v => set({ valor:v })}/></td>
+                  <td style={td}><ChipSelect field="forma" value={r.forma} onChange={v => set({ forma:v })}/></td>
+                  <td style={td}><ChipSelect field="status" value={r.status} onChange={v => set({ status:v })}/></td>
+                  <td style={td}>{receita ? <ChipSelect field="servico" value={r.servico} onChange={v => set({ servico:v })}/>
+                    : <CatSelect value={r.categoria} espaco="empresa" onChange={v => set({ categoria:v })}/>}</td>
+                  <td style={{ ...td, borderRight:"none", textAlign:"center" }}>
+                    <button className="fin-del" onClick={() => onRemove(r.id)} title="Excluir (some também do mês)" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", fontSize:12, padding:"2px 6px" }}>✕</button></td>
+                </tr>
+              ); })}
+          </tbody>
+        </table>
+      </div>}
+      <div style={{ display:"flex", flexWrap:"wrap", borderTop:`1px solid ${P.linha}` }}>
+        <Total label={receita ? "Recebido" : "Pago"} value={pago} color={P.verde}/>
+        {!receita && <Total label="Não pago" value={total - pago} color={P.vermelho} highlight={total - pago > 0}/>}
+        <Total label={receita ? "Total que entrou" : `Total gasto com ${nome}`} value={total} color={receita ? P.verde : P.tinta}/>
+      </div>
+    </div>
+  );
+}
+
 const ABAS_GERAL = [["resumo", "📊 Resumo do ano"], ["clientes", "👥 Clientes"], ["maringa", "🚗 Maringá"], ["datas", "🎉 Datas temáticas"]];
-function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta, setMsg }) {
+function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta, setMsg, onEditRow, onAddRow, onRemoveRow }) {
   const [hover, setHover] = useState(null);
   const [sub, setSub] = useState(() => { try { return localStorage.getItem("aigo-fin-geral-aba") || "resumo"; } catch { return "resumo"; } });
   useEffect(() => { try { localStorage.setItem("aigo-fin-geral-aba", sub); } catch {} }, [sub]);
@@ -2739,7 +2785,8 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
     <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/></div>;
   if (sub === "maringa") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}<GastosMaringa rows={rows} ano={ano} onPick={onPick}/></div>;
   if (sub === "datas") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}
-    <DatasTematicas rows={rows} ano={ano} onPick={onPick} clientes={clientes} onSalvarDatas={l => onCliente("_datas", { info: l.join("|") })}/></div>;
+    <DatasTematicas rows={rows} ano={ano} onPick={onPick} clientes={clientes} onSalvarDatas={l => onCliente("_datas", { info: l.join("|") })}
+      onEditRow={onEditRow} onAddRow={onAddRow} onRemoveRow={onRemoveRow}/></div>;
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       {abas}
@@ -3468,6 +3515,7 @@ function FinanceiroApp({ senha, sair }) {
         )}
 
         {aba === "geral" ? (pessoal ? <GeralPessoal rows={rowsEsp} ano={ano} onPick={setAba}/> : <Geral rows={rowsEsp} ano={ano} onPick={setAba} clientes={clientes} setMsg={setMsg}
+          onEditRow={edit} onRemoveRow={remove} onAddRow={r => setRows(rs => [...rs, marcar(normalize(r))])}
           onCliente={(id, c) => setClientes(cs => ({ ...cs, [id]: { ...c, upd:Date.now() } }))}
           onApagarCliente={id => setClientes(cs => ({ ...cs, [id]: { ...cs[id], apagado:true, upd:Date.now() } }))}
           onMeta={v => setClientes(cs => ({ ...cs, _meta: { valor:v, upd:Date.now() } }))}/>) : pessoal ? (
