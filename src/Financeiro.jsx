@@ -2248,7 +2248,7 @@ function JanelaBackup({ modo, dados, arquivo, onRestaurar, onFechar }) {
   const [feito, setFeito] = useState(false), [erro, setErro] = useState(""), [ocupado, setOcupado] = useState(false);
   const nome = `backup-financeiro-${hojeISO()}.json`;
   const conta = { lanc: dados.rows.length, inv: Object.values(dados.invest).filter(x => !x.apagado).length,
-    cli: Object.entries(dados.clientes).filter(([k, c]) => k !== "_meta" && !c.apagado).length };
+    cli: Object.entries(dados.clientes).filter(([k, c]) => !k.startsWith("_") && !c.apagado).length };
   async function montar() {
     const corpo = { rows: dados.rows, invest: dados.invest, clientes: dados.clientes, cores: dados.cores };
     const cab = { app:"aigo-financeiro", versao:2, criado:new Date().toISOString(), resumo:conta };
@@ -2315,7 +2315,7 @@ function JanelaBackup({ modo, dados, arquivo, onRestaurar, onFechar }) {
 
 // ── Clientes (aba Geral da Empresa): quem paga e quanto, como na sua planilha ──
 function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
-  const lista = Object.entries(clientes).filter(([id, c]) => id !== "_meta" && !c.apagado).map(([id, c]) => ({ id, ...c }))
+  const lista = Object.entries(clientes).filter(([id, c]) => !id.startsWith("_") && !c.apagado).map(([id, c]) => ({ id, ...c }))
     .sort((a, b) => (a.ord || 0) - (b.ord || 0));
   const meta = clientes._meta?.valor || 0;
   const total = lista.reduce((t, c) => t + (c.valor || 0), 0);
@@ -2585,8 +2585,132 @@ function GastosMaringa({ rows, ano, onPick }) {
   );
 }
 
+
+// ── 🎄 Datas temáticas (Natal, Páscoa, Dia das Mães…): quanto custou, quanto entrou e o que sobrou ──
+const DATAS_PADRAO = ["Natal", "Páscoa", "Dia das Mães", "Dia dos Pais", "Dia das Crianças"];
+const ICONE_DATA = { natal:"🎄", pascoa:"🐰", "dia das maes":"💐", "dia dos pais":"👔", "dia das criancas":"🧸", "dia dos namorados":"💘", carnaval:"🎭", halloween:"🎃", "black friday":"🛍️", "festa junina":"🌽" };
+const iconeData = n => ICONE_DATA[semAcento(n)] || "📅";
+const daData = (r, n) => { const k = semAcento(n);
+  return [r.categoria, r.servico, r.tipo, r.classeExtra].some(v => semAcento(v) === k) || ` ${semAcento(r.descricao)} `.includes(` ${k} `); };
+
+// cada data com a sua cor (fundo do destaque, cor forte, cor clara)
+const TEMA_DATA = { natal:["#B3261E", "#6E1410", "#FDECEA"], pascoa:["#7B4FC9", "#C46FA8", "#F4EEFD"], "dia das maes":["#C2185B", "#E8709C", "#FDE9F1"],
+  "dia dos pais":["#1F4E9A", "#4F7FD9", "#E8F0FD"], "dia das criancas":["#E08A00", "#F2B33D", "#FFF4DE"], "dia dos namorados":["#C62844", "#E9677C", "#FDEAEE"],
+  "black friday":["#1E1B24", "#433D4D", "#F1F0F4"], halloween:["#D35400", "#8E3B00", "#FDF0E6"], carnaval:["#8E24AA", "#C2185B", "#F6EAFB"], "festa junina":["#C0582A", "#8A3A16", "#FCF0E8"] };
+const temaData = n => TEMA_DATA[semAcento(n)] || [P.roxo, P.roxo2, "#F3EEFD"];
+
+function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
+  const salvas = clientes._datas?.info;
+  const lista = salvas ? salvas.split("|").filter(Boolean) : DATAS_PADRAO;
+  const conta = (n, a) => { const rs = rows.filter(r => r.mes.startsWith(`${a}-`) && daData(r, n));
+    const gastos = rs.filter(r => r.secao !== "receita"), rec = rs.filter(r => r.secao === "receita");
+    const g = gastos.reduce((t, r) => t + r.valor, 0), e = rec.reduce((t, r) => t + r.valor, 0);
+    return { n, rs, gastos, rec, g, e, res: e - g }; };
+  const dados = lista.map(n => ({ ...conta(n, ano), ant: conta(n, ano - 1) }));
+  const primeira = (dados.find(d => d.rs.length) || dados[0])?.n;
+  const [aberta, setAberta] = useState(null);
+  const det = dados.find(d => d.n === (aberta && lista.includes(aberta) ? aberta : primeira));
+  function nova() {
+    const n = (window.prompt("Nome da data temática (ex.: Dia dos Namorados, Black Friday):") || "").trim().replace(/\s+/g, " ");
+    if (!n || lista.some(x => semAcento(x) === semAcento(n))) return;
+    const nome = n[0].toUpperCase() + n.slice(1); onSalvarDatas([...lista, nome]); setAberta(nome);
+  }
+  const tirar = n => window.confirm(`Tirar "${n}" desta aba? (os lançamentos não são apagados)`) && onSalvarDatas(lista.filter(x => x !== n));
+  const Lista = ({ titulo, l, cor }) => !l.length ? null : (
+    <div style={{ flex:"1 1 300px", minWidth:0 }}>
+      <div style={{ fontSize:11, fontWeight:800, color:cor, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>{titulo}</div>
+      {[...l].sort((a, b) => a.mes.localeCompare(b.mes) || (+a.dia || 0) - (+b.dia || 0)).map(r => (
+        <div key={r.id} onClick={() => onPick(+r.mes.slice(5) - 1)} title="Abrir o mês" style={{ display:"flex", gap:10, fontSize:12.5, padding:"6px 0", borderTop:`1px solid ${P.linha}`, cursor:"pointer" }}>
+          <span style={{ color:P.suave, width:42 }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : MESES[+r.mes.slice(5) - 1].slice(0, 3)}</span>
+          <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.descricao || "(sem descrição)"}</span>
+          <b>{brl(r.valor)}</b>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* escolha da data: chips grandes */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"stretch" }}>
+        {dados.map(d => { const [c1] = temaData(d.n), on = det?.n === d.n;
+          return (
+            <button key={d.n} onClick={() => setAberta(d.n)} style={{ border:`2px solid ${on ? c1 : P.linha}`, background: on ? c1 : P.papel, color: on ? "#fff" : P.tinta,
+              borderRadius:14, padding:"9px 14px", fontFamily:FONT, cursor:"pointer", textAlign:"left", minWidth:150, opacity: d.rs.length || on ? 1 : .55 }}>
+              <div style={{ fontSize:14, fontWeight:800 }}>{iconeData(d.n)} {d.n}</div>
+              <div style={{ fontSize:11, fontWeight:700, marginTop:2, color: on ? "rgba(255,255,255,.85)" : d.rs.length ? (d.res >= 0 ? P.verde : P.vermelho) : P.suave }}>
+                {d.rs.length ? `${d.res >= 0 ? "sobrou" : "faltou"} ${brl(Math.abs(d.res))}` : "nada lançado"}</div>
+            </button>
+          ); })}
+        <button onClick={nova} style={{ border:`2px dashed ${P.lilas}`, background:"transparent", color:P.roxo, borderRadius:14, padding:"9px 16px", fontFamily:FONT, fontSize:13, fontWeight:800, cursor:"pointer" }}>＋ Nova data</button>
+      </div>
+
+      {det && (() => { const [c1, c2, c3] = temaData(det.n), mx = Math.max(det.g, det.e, 1), a = det.ant;
+        const por = MESES.map((m, i) => { const rs = det.rs.filter(r => +r.mes.slice(5) === i + 1);
+          return { m, g: rs.filter(r => r.secao !== "receita").reduce((t, r) => t + r.valor, 0), e: rs.filter(r => r.secao === "receita").reduce((t, r) => t + r.valor, 0) }; });
+        const mxm = Math.max(1, ...por.flatMap(x => [x.g, x.e])), usados = por.map((x, i) => ({ ...x, i })).filter(x => x.g || x.e);
+        return (
+        <div style={{ borderRadius:18, overflow:"hidden", border:`1px solid ${P.linha}`, background:P.papel }}>
+          <div style={{ background:`linear-gradient(120deg, ${c1}, ${c2})`, color:"#fff", padding:"22px 24px", display:"flex", gap:18, alignItems:"center", flexWrap:"wrap", position:"relative" }}>
+            <div style={{ fontSize:58, lineHeight:1 }}>{iconeData(det.n)}</div>
+            <div style={{ flex:"1 1 220px" }}>
+              <div style={{ fontSize:12, fontWeight:800, letterSpacing:".12em", textTransform:"uppercase", opacity:.85 }}>Data temática · {ano}</div>
+              <div style={{ fontSize:30, fontWeight:900, letterSpacing:".02em" }}>{det.n}</div>
+              <div style={{ fontSize:12.5, opacity:.9 }}>{det.gastos.length} gasto{det.gastos.length !== 1 ? "s" : ""} · {det.rec.length} entrada{det.rec.length !== 1 ? "s" : ""}</div>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.16)", borderRadius:14, padding:"12px 18px", textAlign:"right" }}>
+              <div style={{ fontSize:11, fontWeight:800, letterSpacing:".1em", textTransform:"uppercase", opacity:.85 }}>{det.res >= 0 ? "Sobrou" : "Faltou"}</div>
+              <div style={{ fontSize:30, fontWeight:900 }}>{brl(Math.abs(det.res))}</div>
+              {det.g > 0 && det.e > 0 && <div style={{ fontSize:11.5, opacity:.9 }}>cada R$ 1 gasto trouxe {brl(det.e / det.g)}</div>}
+            </div>
+            <button onClick={() => tirar(det.n)} title="Tirar esta data da aba" style={{ position:"absolute", top:8, right:12, border:"none", background:"none", color:"rgba(255,255,255,.75)", cursor:"pointer", fontFamily:FONT, fontSize:11 }}>✕ tirar</button>
+          </div>
+          {!det.rs.length ? <div style={{ padding:"22px 24px", fontSize:13, color:P.suave }}>
+              Nada lançado em {ano}{a.rs.length ? ` (em ${ano - 1}: gastou ${brl(a.g)}, entrou ${brl(a.e)})` : ""}. Para aparecer aqui, use a categoria <b>{det.n}</b> nos gastos (ou escreva "{det.n}" na descrição) e o serviço <b>{det.n}</b> nas receitas.</div> : <>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:0, borderBottom:`1px solid ${P.linha}` }}>
+            {[["Gastou", det.g, a.g, P.vermelho, true], ["Entrou", det.e, a.e, P.verde, false]].map(([t, v, va, cor, gasto], k) => (
+              <div key={t} style={{ flex:"1 1 260px", padding:"16px 24px", borderLeft: k ? `1px solid ${P.linha}` : "none" }}>
+                <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{t}</div>
+                <div style={{ fontSize:26, fontWeight:900, color:cor }}>{brl(v)}</div>
+                <div style={{ height:10, background:c3, borderRadius:99, marginTop:8, overflow:"hidden" }}><div style={{ width:`${v / mx * 100}%`, height:"100%", background:cor, borderRadius:99 }}/></div>
+                <div style={{ fontSize:11.5, color:P.suave, marginTop:6 }}>{ano - 1}: <b style={{ color:P.tinta }}>{brl(va)}</b>
+                  {va > 0 && <span style={{ fontWeight:800, color: (v > va) === gasto ? P.vermelho : P.verde }}> {v > va ? "▲" : "▼"} {Math.abs((v - va) / va * 100).toFixed(0)}%</span>}</div>
+              </div>
+            ))}
+          </div>
+          {usados.length > 0 && <div style={{ padding:"14px 24px", borderBottom:`1px solid ${P.linha}`, background:c3 }}>
+            <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:c1, textTransform:"uppercase", marginBottom:8 }}>Mês a mês</div>
+            <div style={{ display:"flex", gap:18, alignItems:"flex-end", flexWrap:"wrap" }}>
+              {usados.map(x => (
+                <div key={x.i} onClick={() => onPick(x.i)} style={{ cursor:"pointer", textAlign:"center" }} title={`Abrir ${x.m}`}>
+                  <div style={{ display:"flex", gap:4, alignItems:"flex-end", height:70, justifyContent:"center" }}>
+                    <div title={`Gastou ${brl(x.g)}`} style={{ width:16, height:`${x.g / mxm * 100}%`, minHeight: x.g ? 3 : 0, background:P.vermelho, borderRadius:"4px 4px 0 0" }}/>
+                    <div title={`Entrou ${brl(x.e)}`} style={{ width:16, height:`${x.e / mxm * 100}%`, minHeight: x.e ? 3 : 0, background:P.verde, borderRadius:"4px 4px 0 0" }}/>
+                  </div>
+                  <div style={{ fontSize:11, fontWeight:800, color:P.tinta, marginTop:4 }}>{x.m.slice(0, 3)}</div>
+                </div>
+              ))}
+              <div style={{ fontSize:11, color:P.suave, marginLeft:"auto" }}><span style={{ color:P.vermelho }}>■</span> gastou &nbsp; <span style={{ color:P.verde }}>■</span> entrou</div>
+            </div>
+          </div>}
+          <div style={{ display:"flex", gap:28, flexWrap:"wrap", padding:"14px 24px 18px" }}>
+            <Lista titulo="Gastos" l={det.gastos} cor={P.vermelho}/>
+            <Lista titulo="Entradas" l={det.rec} cor={P.verde}/>
+          </div>
+          </>}
+        </div>
+      ); })()}
+
+      <div style={{ fontSize:11.5, color:P.suave }}>Somando todas as datas em {ano}: gastou <b style={{ color:P.vermelho }}>{brl(dados.reduce((t, d) => t + d.g, 0))}</b> ·
+        entrou <b style={{ color:P.verde }}>{brl(dados.reduce((t, d) => t + d.e, 0))}</b>. Entra aqui tudo que tem a categoria, o serviço ou o nome da data na descrição.</div>
+    </div>
+  );
+}
+
+const ABAS_GERAL = [["resumo", "📊 Resumo do ano"], ["clientes", "👥 Clientes"], ["maringa", "🚗 Maringá"], ["datas", "🎉 Datas temáticas"]];
 function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta, setMsg }) {
   const [hover, setHover] = useState(null);
+  const [sub, setSub] = useState(() => { try { return localStorage.getItem("aigo-fin-geral-aba") || "resumo"; } catch { return "resumo"; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-geral-aba", sub); } catch {} }, [sub]);
   const data = MESES.map((nome, m) => {
     const rs = rows.filter(r => r.mes === mesKey(ano, m));
     const sum = f => rs.filter(f).reduce((s, r) => s + r.valor, 0);
@@ -2604,8 +2728,21 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
   const th = { background:P.lilas, fontSize:11, fontWeight:700, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
   const td = { fontSize:12, padding:"7px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
 
+  const abas = (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", background:"#EEE8FB", borderRadius:12, padding:4, width:"fit-content", maxWidth:"100%" }}>
+      {ABAS_GERAL.map(([k, t]) => (
+        <button key={k} onClick={() => setSub(k)} aria-pressed={sub === k} style={{ border:"none", borderRadius:9, padding:"7px 14px", fontFamily:FONT, fontSize:12.5, fontWeight:800,
+          cursor:"pointer", background: sub === k ? P.roxo : "transparent", color: sub === k ? "#fff" : P.roxo, whiteSpace:"nowrap" }}>{t}</button>))}
+    </div>
+  );
+  if (sub === "clientes") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}
+    <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/></div>;
+  if (sub === "maringa") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}<GastosMaringa rows={rows} ano={ano} onPick={onPick}/></div>;
+  if (sub === "datas") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}
+    <DatasTematicas rows={rows} ano={ano} onPick={onPick} clientes={clientes} onSalvarDatas={l => onCliente("_datas", { info: l.join("|") })}/></div>;
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      {abas}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12 }}>
         <Kpi label={`Receitas ${ano}`} value={brl(tot("receitas"))} color={P.verde}
           sub={`Social Media ${brl(tot("social"))} · Foto ${brl(tot("foto"))}`}/>
@@ -2616,11 +2753,7 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
         <Kpi label="20% empresa" value={brl(tot("receitas") * .2)} color={P.laranja} sub="Soma da coluna 20% das receitas"/>
       </div>
 
-      <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/>
-
       <ParaOndeFoi rows={rows.filter(r => r.secao !== "receita" && r.mes.startsWith(`${ano}-`))} titulo={`${ano}`}/>
-
-      <GastosMaringa rows={rows} ano={ano} onPick={onPick}/>
 
       <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
         <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>
@@ -2709,7 +2842,7 @@ function FinanceiroApp({ senha, sair }) {
   // 👥 clientes (aba Geral) — sincronizam pela nuvem
   const [clientes, setClientes] = useState(() => lerJSON("aigo-fin-clientes", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-clientes", JSON.stringify(clientes)); } catch {} }, [clientes]);
-  const servicosClientes = Object.entries(clientes).filter(([k, c]) => k !== "_meta" && !c.apagado && c.servico).map(([, c]) => ({ secao:"receita", servico:c.servico }));
+  const servicosClientes = Object.entries(clientes).filter(([k, c]) => !k.startsWith("_") && !c.apagado && c.servico).map(([, c]) => ({ secao:"receita", servico:c.servico }));
   atualizarCatExtra([...rows, ...review, ...servicosClientes]);   // categorias e opções criadas (vêm dos lançamentos e clientes)
   // 🎨 cores escolhidas (sincronizam pela nuvem)
   const [cores, setCores] = useState(() => lerJSON("aigo-fin-cores", {}));
