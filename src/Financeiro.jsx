@@ -2248,7 +2248,7 @@ function JanelaBackup({ modo, dados, arquivo, onRestaurar, onFechar }) {
   const [feito, setFeito] = useState(false), [erro, setErro] = useState(""), [ocupado, setOcupado] = useState(false);
   const nome = `backup-financeiro-${hojeISO()}.json`;
   const conta = { lanc: dados.rows.length, inv: Object.values(dados.invest).filter(x => !x.apagado).length,
-    cli: Object.entries(dados.clientes).filter(([k, c]) => k !== "_meta" && !c.apagado).length };
+    cli: Object.entries(dados.clientes).filter(([k, c]) => !k.startsWith("_") && !c.apagado).length };
   async function montar() {
     const corpo = { rows: dados.rows, invest: dados.invest, clientes: dados.clientes, cores: dados.cores };
     const cab = { app:"aigo-financeiro", versao:2, criado:new Date().toISOString(), resumo:conta };
@@ -2315,7 +2315,7 @@ function JanelaBackup({ modo, dados, arquivo, onRestaurar, onFechar }) {
 
 // ── Clientes (aba Geral da Empresa): quem paga e quanto, como na sua planilha ──
 function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
-  const lista = Object.entries(clientes).filter(([id, c]) => id !== "_meta" && !c.apagado).map(([id, c]) => ({ id, ...c }))
+  const lista = Object.entries(clientes).filter(([id, c]) => !id.startsWith("_") && !c.apagado).map(([id, c]) => ({ id, ...c }))
     .sort((a, b) => (a.ord || 0) - (b.ord || 0));
   const meta = clientes._meta?.valor || 0;
   const total = lista.reduce((t, c) => t + (c.valor || 0), 0);
@@ -2585,8 +2585,92 @@ function GastosMaringa({ rows, ano, onPick }) {
   );
 }
 
+
+// ── 🎄 Datas temáticas (Natal, Páscoa, Dia das Mães…): quanto custou, quanto entrou e o que sobrou ──
+const DATAS_PADRAO = ["Natal", "Páscoa", "Dia das Mães", "Dia dos Pais", "Dia das Crianças"];
+const ICONE_DATA = { natal:"🎄", pascoa:"🐰", "dia das maes":"💐", "dia dos pais":"👔", "dia das criancas":"🧸", "dia dos namorados":"💘", carnaval:"🎭", halloween:"🎃", "black friday":"🛍️", "festa junina":"🌽" };
+const iconeData = n => ICONE_DATA[semAcento(n)] || "📅";
+const daData = (r, n) => { const k = semAcento(n);
+  return [r.categoria, r.servico, r.tipo, r.classeExtra].some(v => semAcento(v) === k) || ` ${semAcento(r.descricao)} `.includes(` ${k} `); };
+
+function DatasTematicas({ rows, ano, onPick, clientes, onSalvarDatas }) {
+  const salvas = clientes._datas?.info;
+  const lista = salvas ? salvas.split("|").filter(Boolean) : DATAS_PADRAO;
+  const [aberta, setAberta] = useState(null);
+  const conta = (n, a) => { const rs = rows.filter(r => r.mes.startsWith(`${a}-`) && daData(r, n));
+    const gastos = rs.filter(r => r.secao !== "receita"), rec = rs.filter(r => r.secao === "receita");
+    const g = gastos.reduce((t, r) => t + r.valor, 0), e = rec.reduce((t, r) => t + r.valor, 0);
+    return { n, rs, gastos, rec, g, e, res: e - g }; };
+  const dados = lista.map(n => ({ ...conta(n, ano), ant: conta(n, ano - 1) }));
+  const tot = dados.reduce((o, d) => ({ g: o.g + d.g, e: o.e + d.e }), { g:0, e:0 });
+  const det = dados.find(d => d.n === aberta);
+  function nova() {
+    const n = (window.prompt("Nome da data temática (ex.: Dia dos Namorados, Black Friday):") || "").trim().replace(/\s+/g, " ");
+    if (!n || lista.some(x => semAcento(x) === semAcento(n))) return;
+    onSalvarDatas([...lista, n[0].toUpperCase() + n.slice(1)]);
+  }
+  const tirar = n => window.confirm(`Tirar "${n}" desta aba? (os lançamentos não são apagados)`) && onSalvarDatas(lista.filter(x => x !== n));
+  const varia = (a, b) => !b ? null : <span style={{ fontSize:10.5, fontWeight:700, color: a > b ? P.vermelho : P.verde }}>{a > b ? "▲" : "▼"} {Math.abs((a - b) / b * 100).toFixed(0)}% vs {ano - 1}</span>;
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12 }}>
+        <Kpi label={`Gastos com datas · ${ano}`} value={brl(tot.g)} color={P.vermelho} sub="cenário, decoração, brindes…"/>
+        <Kpi label={`Entrou com datas · ${ano}`} value={brl(tot.e)} color={P.verde} sub="ensaios e serviços temáticos"/>
+        <Kpi label="Resultado" value={<span style={{ color: tot.e - tot.g >= 0 ? P.verde : P.vermelho }}>{brl(tot.e - tot.g)}</span>} color={P.roxo}
+          sub={tot.e ? `cada R$ 1 gasto trouxe ${brl(tot.e / Math.max(1, tot.g))}` : "entrou − gastos"}/>
+      </div>
+      <div style={caixaBloco}>
+        <Cabeca titulo={`🎉 Datas temáticas · ${ano}`} sub="tudo que tem a categoria, o serviço ou o nome da data na descrição">
+          <HeadBtn onClick={nova}>＋ Nova data</HeadBtn>
+        </Cabeca>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:12, padding:14 }}>
+          {dados.map(d => {
+            const on = aberta === d.n, vazio = !d.rs.length;
+            return (
+              <div key={d.n} onClick={() => setAberta(on ? null : d.n)} style={{ border:`${on ? 2 : 1}px solid ${on ? P.roxo2 : P.linha}`, borderRadius:12, padding:"12px 14px",
+                cursor:"pointer", background: on ? "#F7F3FE" : P.papel, opacity: vazio ? .6 : 1, position:"relative" }}>
+                <button onClick={e => { e.stopPropagation(); tirar(d.n); }} title="Tirar esta data" style={{ position:"absolute", top:6, right:8, border:"none", background:"none", color:P.suave, cursor:"pointer", fontSize:11 }}>✕</button>
+                <div style={{ fontSize:15, fontWeight:800 }}>{iconeData(d.n)} {d.n}</div>
+                {vazio ? <div style={{ fontSize:11.5, color:P.suave, marginTop:8 }}>Nada lançado em {ano}{d.ant.rs.length ? ` · ${ano - 1}: gastou ${brl(d.ant.g)}` : ""}</div> : <>
+                  <div style={{ display:"flex", gap:12, marginTop:8 }}>
+                    <div><div style={{ fontSize:9.5, fontWeight:800, color:P.suave, letterSpacing:".06em" }}>GASTOU</div><b style={{ color:P.vermelho }}>{brl(d.g)}</b></div>
+                    <div><div style={{ fontSize:9.5, fontWeight:800, color:P.suave, letterSpacing:".06em" }}>ENTROU</div><b style={{ color:P.verde }}>{brl(d.e)}</b></div>
+                  </div>
+                  <div style={{ fontSize:12.5, fontWeight:800, marginTop:6, color: d.res >= 0 ? P.verde : P.vermelho }}>{d.res >= 0 ? "Sobrou" : "Faltou"} {brl(Math.abs(d.res))}</div>
+                  <div style={{ marginTop:3 }}>{varia(d.g, d.ant.g)}</div>
+                </>}
+              </div>
+            );
+          })}
+        </div>
+        {det && (det.rs.length ? (
+          <div style={{ padding:"0 14px 14px" }}>
+            {[["Gastos", det.gastos, P.vermelho], ["Entrou", det.rec, P.verde]].filter(([, l]) => l.length).map(([t, l, cor]) => (
+              <div key={t} style={{ marginTop:8 }}>
+                <div style={{ fontSize:11, fontWeight:800, color:cor, letterSpacing:".06em", textTransform:"uppercase", marginBottom:2 }}>{iconeData(det.n)} {det.n} · {t}</div>
+                {[...l].sort((a, b) => a.mes.localeCompare(b.mes) || (+a.dia || 0) - (+b.dia || 0)).map(r => (
+                  <div key={r.id} onClick={() => onPick(+r.mes.slice(5) - 1)} title="Abrir o mês" style={{ display:"flex", gap:10, fontSize:12, padding:"5px 0", borderTop:`1px solid ${P.linha}`, cursor:"pointer" }}>
+                    <span style={{ color:P.suave, width:44 }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : MESES[+r.mes.slice(5) - 1].slice(0, 3)}</span>
+                    <span style={{ flex:1 }}>{r.descricao || "(sem descrição)"}</span>
+                    <span style={{ color:P.suave, fontSize:11 }}>{r.categoria || r.servico || ""}</span>
+                    <b style={{ width:96, textAlign:"right" }}>{brl(r.valor)}</b>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ padding:"0 14px 14px", fontSize:12, color:P.suave }}>Para aparecer aqui, use a categoria <b>{det.n}</b> nos gastos (ou escreva "{det.n}" na descrição). Nas receitas, use o serviço {det.n}.</div>)}
+        {!det && <div style={{ padding:"0 14px 12px", fontSize:11, color:P.suave }}>Clique numa data para ver cada gasto e cada entrada.</div>}
+      </div>
+    </div>
+  );
+}
+
+const ABAS_GERAL = [["resumo", "📊 Resumo do ano"], ["clientes", "👥 Clientes"], ["maringa", "🚗 Maringá"], ["datas", "🎉 Datas temáticas"]];
 function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta, setMsg }) {
   const [hover, setHover] = useState(null);
+  const [sub, setSub] = useState(() => { try { return localStorage.getItem("aigo-fin-geral-aba") || "resumo"; } catch { return "resumo"; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-geral-aba", sub); } catch {} }, [sub]);
   const data = MESES.map((nome, m) => {
     const rs = rows.filter(r => r.mes === mesKey(ano, m));
     const sum = f => rs.filter(f).reduce((s, r) => s + r.valor, 0);
@@ -2604,8 +2688,21 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
   const th = { background:P.lilas, fontSize:11, fontWeight:700, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
   const td = { fontSize:12, padding:"7px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
 
+  const abas = (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", background:"#EEE8FB", borderRadius:12, padding:4, width:"fit-content", maxWidth:"100%" }}>
+      {ABAS_GERAL.map(([k, t]) => (
+        <button key={k} onClick={() => setSub(k)} aria-pressed={sub === k} style={{ border:"none", borderRadius:9, padding:"7px 14px", fontFamily:FONT, fontSize:12.5, fontWeight:800,
+          cursor:"pointer", background: sub === k ? P.roxo : "transparent", color: sub === k ? "#fff" : P.roxo, whiteSpace:"nowrap" }}>{t}</button>))}
+    </div>
+  );
+  if (sub === "clientes") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}
+    <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/></div>;
+  if (sub === "maringa") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}<GastosMaringa rows={rows} ano={ano} onPick={onPick}/></div>;
+  if (sub === "datas") return <div style={{ display:"flex", flexDirection:"column", gap:20 }}>{abas}
+    <DatasTematicas rows={rows} ano={ano} onPick={onPick} clientes={clientes} onSalvarDatas={l => onCliente("_datas", { info: l.join("|") })}/></div>;
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      {abas}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12 }}>
         <Kpi label={`Receitas ${ano}`} value={brl(tot("receitas"))} color={P.verde}
           sub={`Social Media ${brl(tot("social"))} · Foto ${brl(tot("foto"))}`}/>
@@ -2616,11 +2713,7 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
         <Kpi label="20% empresa" value={brl(tot("receitas") * .2)} color={P.laranja} sub="Soma da coluna 20% das receitas"/>
       </div>
 
-      <Clientes clientes={clientes} rows={rows} ano={ano} onSalvar={onCliente} onApagar={onApagarCliente} onMeta={onMeta} setMsg={setMsg}/>
-
       <ParaOndeFoi rows={rows.filter(r => r.secao !== "receita" && r.mes.startsWith(`${ano}-`))} titulo={`${ano}`}/>
-
-      <GastosMaringa rows={rows} ano={ano} onPick={onPick}/>
 
       <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
         <div style={{ background:P.roxo, color:"#fff", padding:"9px 14px", fontSize:12, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>
@@ -2709,7 +2802,7 @@ function FinanceiroApp({ senha, sair }) {
   // 👥 clientes (aba Geral) — sincronizam pela nuvem
   const [clientes, setClientes] = useState(() => lerJSON("aigo-fin-clientes", {}));
   useEffect(() => { try { localStorage.setItem("aigo-fin-clientes", JSON.stringify(clientes)); } catch {} }, [clientes]);
-  const servicosClientes = Object.entries(clientes).filter(([k, c]) => k !== "_meta" && !c.apagado && c.servico).map(([, c]) => ({ secao:"receita", servico:c.servico }));
+  const servicosClientes = Object.entries(clientes).filter(([k, c]) => !k.startsWith("_") && !c.apagado && c.servico).map(([, c]) => ({ secao:"receita", servico:c.servico }));
   atualizarCatExtra([...rows, ...review, ...servicosClientes]);   // categorias e opções criadas (vêm dos lançamentos e clientes)
   // 🎨 cores escolhidas (sincronizam pela nuvem)
   const [cores, setCores] = useState(() => lerJSON("aigo-fin-cores", {}));

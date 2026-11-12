@@ -62,6 +62,7 @@ function juntarClientes(a = {}, b = {}) {
   for (const [id, v] of Object.entries(b || {})) {
     if (!v || typeof v !== "object" || typeof id !== "string" || id.length > 80) continue;
     const limpo = id === "_meta" ? { valor: Number(v.valor) || 0, upd: Number(v.upd) || 0 }
+      : id === "_datas" ? { info: txt(v.info, 600), upd: Number(v.upd) || 0 }   // datas temáticas da aba Geral, separadas por "|"
       : { nome: txt(v.nome, 120), servico: txt(v.servico, 60), valor: Number(v.valor) || 0, inicio: txt(v.inicio, 10),
           info: txt(v.info, 200), pago: txt(v.pago, 7), ord: Number(v.ord) || 0, upd: Number(v.upd) || 0, ...(v.apagado ? { apagado: true } : {}) };
     if (!out[id] || limpo.upd > (Number(out[id].upd) || 0)) out[id] = limpo;
