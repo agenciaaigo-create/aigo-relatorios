@@ -592,7 +592,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0, background:P.papel };
   const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
   const caixa = { width:14, height:14, cursor:"pointer", accentColor:P.roxo2 };
-  const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFF6D5" } : {};
+  const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFEFA0" } : {};
   // Marcar várias linhas arrastando o dedo/mouse pelos quadradinhos (ou Shift + clique)
   const arrasto = useRef(null), ultimo = useRef(null);
   const faixa = (a, b) => rows.slice(Math.min(a, b), Math.max(a, b) + 1).map(r => r.id);
@@ -2918,6 +2918,7 @@ function FinanceiroApp({ senha, sair }) {
   const [historico, setHistorico] = useState(() => lerJSON(HIST_KEY, []));
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
+  const [ultimaBusca, setUltimaBusca] = useState("");
   const [salvo, setSalvo] = useState({ ok:true, quando:null });
   const [apagados, setApagados] = useState(() => lerJSON(APAG_KEY, []));
   const [nuvem, setNuvem] = useState({ estado:"conectando", quando:null });   // conectando | enviando | ok | sem | erro
@@ -3665,9 +3666,12 @@ function FinanceiroApp({ senha, sair }) {
             borderRadius:9, padding:"7px 16px", fontFamily:FONT, fontSize:13, fontWeight:800, cursor:"pointer" }}>✓ Concluir</button>
         </div>
       )}
-      {busca && <Busca rows={rows} espacoInicial={espaco} onFechar={() => setBusca(false)} onIr={r => {
+      {busca && <Busca rows={rows} espacoInicial={espaco} inicial={ultimaBusca} onQ={setUltimaBusca} onFechar={() => setBusca(false)} onIr={(r, achados = [r]) => {
         const [y, m] = r.mes.split("-");
-        setBusca(false); setEspaco(espacoDe(r.secao)); setAno(+y); setAba(+m - 1); setDestaque(new Set([r.id]));
+        // grifa todos os resultados do mesmo mês (e do mesmo lado), para conferir se algo está duplicado
+        const juntos = achados.filter(x => x.mes === r.mes && espacoDe(x.secao) === espacoDe(r.secao));
+        setBusca(false); setEspaco(espacoDe(r.secao)); setAno(+y); setAba(+m - 1); setDestaque(new Set(juntos.map(x => x.id)));
+        if (juntos.length > 1) setMsg(`🔎 ${juntos.length} resultados de "${ultimaBusca}" grifados em amarelo em ${MESES[+m - 1]}. Confira se algum está duplicado.`);
         setTimeout(() => document.querySelector(`tr[data-id="${r.id}"]`)?.scrollIntoView({ behavior:"smooth", block:"center" }), 350);
       }}/>}
       {painelCores && <PainelCores espacoInicial={espaco} cores={cores} onCor={escolherCor} onVoltar={voltarCores} onFechar={() => setPainelCores(false)}/>}
@@ -3770,11 +3774,12 @@ function IconeLupa({ size = 17 }) {
 }
 
 // 🔍 Busca em todos os lançamentos (todos os meses e anos, Empresa e Pessoal)
-function Busca({ rows, espacoInicial, onIr, onFechar }) {
-  const [q, setQ] = useState("");
+function Busca({ rows, espacoInicial, onIr, onFechar, inicial = "", onQ }) {
+  const [q, setQ] = useState(inicial);
+  useEffect(() => { onQ?.(q); }, [q]);
   const [onde, setOnde] = useState("tudo");
   const ref = useRef();
-  useEffect(() => { ref.current?.focus(); const esc = e => { if (e.key === "Escape") onFechar(); }; window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc); }, []);
+  useEffect(() => { ref.current?.focus(); ref.current?.select(); const esc = e => { if (e.key === "Escape") onFechar(); }; window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc); }, []);
   const termo = semAcento(q);
   const achados = useMemo(() => {
     if (termo.length < 2) return [];
@@ -3815,7 +3820,7 @@ function Busca({ rows, espacoInicial, onIr, onFechar }) {
             const [y, m] = r.mes.split("-"), rec = r.secao === "receita";
             const extra = rec ? [r.servico, r.tipo].filter(Boolean).join(" · ") : r.categoria;
             return (
-              <button key={r.id} onClick={() => onIr(r)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"9px 16px", border:"none",
+              <button key={r.id} onClick={() => onIr(r, achados)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"9px 16px", border:"none",
                 borderBottom:`1px solid ${P.linha}`, background:"none", cursor:"pointer", fontFamily:FONT, textAlign:"left", color:P.tinta }}>
                 <span style={{ width:58, flex:"0 0 auto", fontSize:11, color:P.suave, lineHeight:1.3 }}>
                   <b style={{ color:P.tinta, fontSize:12 }}>{r.dia ? pad(r.dia) : "—"} {MESES[+m - 1].slice(0, 3).toLowerCase()}</b><br/>{y}</span>
