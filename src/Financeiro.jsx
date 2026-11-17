@@ -3004,8 +3004,14 @@ function FinanceiroApp({ senha, sair }) {
   const rowsEsp = useMemo(() => rows.filter(r => ESPACOS[espaco].secoes.includes(r.secao)), [rows, espaco]);
   const doMes = useMemo(() => rowsEsp.filter(r => r.mes === mes), [rowsEsp, mes]);
   // Em Parcelas e Extras e em todas as tabelas do Pessoal, as linhas com parcela no Info (ex.: 3/10) ficam sempre no topo
+  // 🔽 Filtro das tabelas do mês (forma de pagamento, categoria, status). Linha recém-criada (vazia) sempre aparece.
+  const [filtro, setFiltro] = useState({ forma:"", categoria:"", status:"" });
+  const filtrando = !!(filtro.forma || filtro.categoria || filtro.status);
+  const catDe = r => r.secao === "receita" ? r.servico : r.categoria;
+  const passa = r => (!r.descricao && !r.valor) || ((!filtro.forma || r.forma === filtro.forma) && (!filtro.categoria || catDe(r) === filtro.categoria)
+    && (!filtro.status || r.status === filtro.status));
   const bySec = s => {
-    const rs = doMes.filter(r => r.secao === s);
+    const rs = doMes.filter(r => r.secao === s && (!filtrando || passa(r)));
     if (s !== "extra" && !s.startsWith("p_")) return rs;
     const ordem = sortRows(rs);
     return [...ordem.filter(r => parcela(r)), ...ordem.filter(r => !parcela(r))];
@@ -3525,6 +3531,36 @@ function FinanceiroApp({ senha, sair }) {
           </div>
         )}
 
+        {aba !== "geral" && (() => {
+          const comDados = doMes.filter(r => r.descricao || r.valor);
+          const formas = [...new Set(comDados.map(r => r.forma).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+          const cats = [...new Set(comDados.map(catDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+          const achados = comDados.filter(passa), saiu = achados.filter(r => r.secao !== "receita"), entrou = achados.filter(r => r.secao === "receita");
+          const soma = l => l.reduce((t, r) => t + r.valor, 0), aberto = soma(saiu.filter(r => r.status !== "pago"));
+          const sel = (k, rotulo, ops) => (
+            <select value={filtro[k]} onChange={e => setFiltro(f => ({ ...f, [k]: e.target.value }))} aria-label={rotulo}
+              style={{ border:`1px solid ${filtro[k] ? P.roxo2 : P.lilas}`, background: filtro[k] ? P.roxo2 : P.papel, color: filtro[k] ? "#fff" : P.tinta,
+                borderRadius:999, padding:"5px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer", maxWidth:220 }}>
+              <option value="">{rotulo}: todas</option>{ops.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>);
+          return (
+            <div style={{ background: filtrando ? "#F3EEFD" : "transparent", border: filtrando ? `1px solid ${P.lilas}` : "1px solid transparent", borderRadius:12,
+              padding: filtrando ? "8px 12px" : "0 0 2px", marginBottom:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <span style={{ fontSize:12, fontWeight:800, color:P.roxo }}>🔽 Filtrar</span>
+              {sel("forma", "Forma", formas.map(f => [f, chipOf("forma", f)?.[3] || f]))}
+              {sel("categoria", pessoal ? "Categoria" : "Categoria / serviço", cats.map(c => [c, c]))}
+              {sel("status", "Status", [["pago", "Pago"], ["nao_pago", "Não pago"]])}
+              {filtrando && <>
+                <span style={{ fontSize:12, color:P.tinta }}>
+                  <b>{achados.length}</b> lançamento{achados.length !== 1 ? "s" : ""}
+                  {saiu.length > 0 && <> · saiu <b style={{ color:P.vermelho }}>{brl(soma(saiu))}</b>{aberto > 0 && <> (falta pagar {brl(aberto)})</>}</>}
+                  {entrou.length > 0 && <> · entrou <b style={{ color:P.verde }}>{brl(soma(entrou))}</b></>}
+                </span>
+                <button onClick={() => setFiltro({ forma:"", categoria:"", status:"" })} style={{ marginLeft:"auto", border:"none", background:P.roxo, color:"#fff",
+                  borderRadius:999, padding:"5px 12px", fontFamily:FONT, fontSize:11.5, fontWeight:800, cursor:"pointer" }}>✕ Limpar filtro</button>
+              </>}
+            </div>
+          );
+        })()}
         {aba === "geral" ? (pessoal ? <GeralPessoal rows={rowsEsp} ano={ano} onPick={setAba}/> : <Geral rows={rowsEsp} ano={ano} onPick={setAba} clientes={clientes} setMsg={setMsg}
           onEditRow={edit} onRemoveRow={remove} onAddRow={r => setRows(rs => [...rs, marcar(normalize(r))])}
           onCliente={(id, c) => setClientes(cs => ({ ...cs, [id]: { ...c, upd:Date.now() } }))}
