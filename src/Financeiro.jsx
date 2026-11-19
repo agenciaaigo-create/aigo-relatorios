@@ -1368,6 +1368,21 @@ function liquidoHoje(it, movs, merc) {
   const dias = Math.round((new Date(hoje + "T12:00:00") - new Date(it.dataBase + "T12:00:00")) / 86400000);
   return (it.liq || it.saldo || 0) + entrou + rend * (1 - aliquotaIR(dias));
 }
+// Compras e vendas de uma ação em ordem, com o preço médio depois de cada uma (venda não muda o preço médio)
+function opsAcao(it, movs) {
+  const ops = [];
+  if ((it.qtd || 0) > 0 && (it.custo || 0) > 0) ops.push({ id:it.id + "-base", data:it.dataBase, qtd:it.qtd, valor:it.custo, venda:false, upd:0 });
+  movs.filter(m => m.inv === it.id && depoisDaBase(m, it) && (m.qtd || 0) > 0)
+    .forEach(m => ops.push({ id:m.id, data:m.data, qtd:m.qtd, valor:m.valor || 0, venda: m.tipo === "resgate", upd:m.upd || 0 }));
+  ops.sort((a, b) => a.data.localeCompare(b.data) || a.upd - b.upd);
+  let q = 0, custo = 0;
+  ops.forEach(o => {
+    if (o.venda) { const pm = q ? custo / q : 0; q = Math.max(0, q - o.qtd); custo = pm * q; }
+    else { q += o.qtd; custo += o.valor; }
+    o.medio = q ? custo / q : 0; o.cotas = q;
+  });
+  return { ops, q, medio: q ? custo / q : 0 };
+}
 function custoAcao(it, movs) { return (it.custo || 0) + movs.filter(m => m.inv === it.id && depoisDaBase(m, it)).reduce((t, m) => t + sinal(m) * (m.valor || 0), 0); }
 
 // Busca o CDI e as cotações (a cada 10 minutos com a aba aberta)
@@ -1578,7 +1593,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
                     {total >= 0 ? "▲" : "▼"} {oculto ? TRACOS : brl(Math.abs(total))} ({custo ? pctFmt(total / custo * 100) : "—"}) desde a compra</span>
                   <span style={{ fontSize:10.5, color:P.suave }}>
                     {a ? <>Cotação {brl(a.preco)}{varDia != null && <b style={{ color: varDia >= 0 ? P.verde : P.vermelho }}> {pctFmt(varDia)} hoje</b>}</> : "cotação indisponível"}
-                    {q ? ` · preço médio ${brl(custo / q)}` : ""}</span>
+                    {q ? ` · preço médio ${brl(opsAcao(it, movs).medio || custo / q)}` : ""}</span>
                 </>}
                 {it.tipo === "caixa" && <span style={{ fontSize:10.5, color:P.suave }}>parado na conta, esperando para investir</span>}
                 {it.tipo === "caixa" && <button onClick={() => setFormMov({ data:hoje, tipo:"transf", inv:it.id, para:"" })}
@@ -1603,6 +1618,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
       ) : (
         <TabelaInvest itens={itens} onSalvar={onSalvar} onApagar={onApagar} onEditar={setForm}/>
       )}
+
+      <HistoricoAcoes itens={itens} movs={movs} merc={merc} v={v}/>
 
       <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
 
@@ -1675,6 +1692,62 @@ function DivisaoRend({ linhas, k, vs }) {
     {temRF && linha(TIPOS_INV.cdi.cor, "caixinhas", rf)}
     {temRV && linha(TIPOS_INV.acao.cor, "ações e FIIs", rv)}
   </div>;
+}
+
+// 📒 Histórico de compras de ações e FIIs: cada compra com data, cotas, preço por cota e como o preço médio foi mudando
+function HistoricoAcoes({ itens, movs, merc, v }) {
+  const acoes = itens.filter(i => i.tipo === "acao");
+  const [qual, setQual] = useState("todas");
+  if (!acoes.length) return null;
+  const porAcao = acoes.map(it => ({ it, ...opsAcao(it, movs), preco: merc.acoes?.[it.ticker]?.preco ?? null }));
+  const mostrar = qual === "todas" ? porAcao : porAcao.filter(d => d.it.id === qual);
+  const linhas = mostrar.flatMap(d => d.ops.map(o => ({ ...o, d }))).sort((a, b) => b.data.localeCompare(a.data) || b.upd - a.upd);
+  const th = { background:P.lilas, fontSize:10.5, fontWeight:800, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
+  const td = { fontSize:12.5, padding:"8px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
+  const chip = (k, t) => <button key={k} onClick={() => setQual(k)} aria-pressed={qual === k} style={{ ...botaoCab(qual === k) }}>{t}</button>;
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="📒 Histórico de compras" sub="quando comprou, quanto pagou por cota e como o preço médio mudou">
+        {chip("todas", "Todas")}{acoes.map(it => chip(it.id, it.ticker || it.nome))}
+      </Cabeca>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10, padding:"12px 14px", borderBottom:`1px solid ${P.linha}` }}>
+        {mostrar.map(d => { const dif = d.preco && d.medio ? (d.preco / d.medio - 1) * 100 : null;
+          return (
+            <div key={d.it.id} style={{ background:"#F7F4FD", borderRadius:10, padding:"9px 12px" }}>
+              <div style={{ fontSize:13, fontWeight:800 }}>{d.it.ticker} <span style={{ fontSize:11, fontWeight:600, color:P.suave }}>{d.it.nome !== d.it.ticker ? d.it.nome : ""}</span></div>
+              <div style={{ fontSize:11.5, color:P.tinta, marginTop:3 }}>{d.q} cota{d.q !== 1 ? "s" : ""} · preço médio <b>{v(d.medio)}</b></div>
+              <div style={{ fontSize:11.5, color:P.suave }}>cotação hoje {d.preco ? brl(d.preco) : "—"}
+                {dif != null && <b style={{ color: dif >= 0 ? P.verde : P.vermelho }}> {dif >= 0 ? "▲" : "▼"} {Math.abs(dif).toFixed(1).replace(".", ",")}%</b>}</div>
+            </div>
+          ); })}
+      </div>
+      {!linhas.length ? <div style={{ padding:"18px 14px", fontSize:12, color:P.suave }}>Nenhuma compra registrada ainda.</div> :
+      <div style={{ overflowX:"auto" }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:780, fontFamily:FONT, color:P.tinta }}>
+          <thead><tr>
+            <th style={{ ...th, textAlign:"left" }}>Data</th><th style={{ ...th, textAlign:"left" }}>Ação / FII</th><th style={{ ...th, textAlign:"left" }}>O que fez</th>
+            <th style={th}>Cotas</th><th style={th}>Preço por cota</th><th style={th}>Total</th><th style={th}>Preço médio depois</th><th style={th}>Hoje vs o que pagou</th>
+          </tr></thead>
+          <tbody>
+            {linhas.map(o => { const pc = o.valor / o.qtd, hoje = o.d.preco, dif = hoje && !o.venda ? (hoje / pc - 1) * 100 : null;
+              return (
+                <tr key={o.id} className="fin-row">
+                  <td style={{ ...td, textAlign:"left", fontWeight:700 }}>{dataBR(o.data)}</td>
+                  <td style={{ ...td, textAlign:"left" }}><b>{o.d.it.ticker}</b></td>
+                  <td style={{ ...td, textAlign:"left" }}><span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:800,
+                    background: o.venda ? "#FBD9DB" : "#DCE8FB", color: o.venda ? P.vermelho : "#1F5FBF" }}>{o.venda ? "Venda" : "Compra"}</span></td>
+                  <td style={td}>{o.venda ? "−" : "+"}{o.qtd}</td>
+                  <td style={{ ...td, fontWeight:800 }}>{v(pc)}</td>
+                  <td style={td}>{v(o.valor)}</td>
+                  <td style={td}>{v(o.medio)} <span style={{ color:P.suave, fontSize:11 }}>({o.cotas} cota{o.cotas !== 1 ? "s" : ""})</span></td>
+                  <td style={{ ...td, fontWeight:800, color: dif == null ? P.suave : dif >= 0 ? P.verde : P.vermelho }}>{dif == null ? "—" : `${dif >= 0 ? "▲" : "▼"} ${Math.abs(dif).toFixed(1).replace(".", ",")}%`}</td>
+                </tr>
+              ); })}
+          </tbody>
+        </table>
+      </div>}
+    </div>
+  );
 }
 
 // Uma linha de aporte / resgate / transferência
