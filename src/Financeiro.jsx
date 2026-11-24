@@ -1180,22 +1180,16 @@ function KpiParcelas({ parc }) {
   const oculto = useContext(OcultarCtx);
   const f = v => oculto ? TRACOS : brl(v);
   const falta = parc.doMes - parc.pagoMes;
+  // mesmo formato e altura dos outros cards: rótulo, valor grande e duas linhas pequenas
   return (
-    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px", minWidth:0 }}>
-      <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>🔁 Parcelas</div>
-      {!parc.lista.length ? <div style={{ fontSize:13, color:P.suave, marginTop:8 }}>Nenhuma parcela neste mês</div> :
-      <div style={{ display:"flex", gap:14, marginTop:4, flexWrap:"wrap" }}>
-        <div>
-          <div style={{ fontSize:10, fontWeight:700, color:P.suave }}>NESTE MÊS</div>
-          <div style={{ fontSize:19, fontWeight:900, color:P.roxo, whiteSpace:"nowrap" }}>{f(parc.doMes)}</div>
-          <div style={{ fontSize:10.5, fontWeight:700, color: falta > 0 ? P.vermelho : P.verde }}>{falta > 0 ? `falta pagar ${f(falta)}` : "tudo pago ✓"}</div>
-        </div>
-        <div style={{ borderLeft:`1px solid ${P.linha}`, paddingLeft:14 }}>
-          <div style={{ fontSize:10, fontWeight:700, color:P.suave }}>AINDA FALTA</div>
-          <div style={{ fontSize:19, fontWeight:900, color:P.tinta, whiteSpace:"nowrap" }}>{f(parc.falta)}</div>
-          <div style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}{parc.terminam ? ` · ${parc.terminam} termina${parc.terminam > 1 ? "m" : ""} agora` : ""}</div>
-        </div>
-      </div>}
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px", minWidth:0, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+      <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>🔁 Parcelas do mês</div>
+      <div style={{ fontSize:21, fontWeight:900, color:P.roxo, marginTop:4, whiteSpace:"nowrap" }}>{parc.lista.length ? f(parc.doMes) : brl(0)}</div>
+      {parc.lista.length ? <>
+        <div style={{ fontSize:10.5, fontWeight:700, marginTop:3, color: falta > 0 ? P.vermelho : P.verde }}>{falta > 0 ? `falta pagar ${f(falta)}` : "tudo pago ✓"}</div>
+        <div style={{ fontSize:11, color:P.suave, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}
+          title={`${parc.lista.length} parcelamentos · ${parc.terminam} terminam este mês`}>ainda faltam <b style={{ color:P.tinta }}>{f(parc.falta)}</b> · {parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}</div>
+      </> : <div style={{ fontSize:10.5, color:P.suave, marginTop:3 }}>nenhuma parcela neste mês</div>}
     </div>
   );
 }
