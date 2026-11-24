@@ -1446,6 +1446,10 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
     onSalvar(id, { ...raw, kind:"mov", valor: parseValor(t), data: raw.data > hojeStr() ? hojeStr() : raw.data });
     setMsg(`✅ Feito! ${raw.tipo === "transf" ? "Transferência" : raw.tipo === "resgate" ? "Resgate" : "Aporte"} de ${brl(parseValor(t))} lançado.`);
   }
+  // 📝 motivo/info de uma movimentação (ex.: "reforma do estúdio")
+  const editarInfo = m => { const id = m.orig || m.id, raw = invest[id]; if (!raw) return;
+    const t = window.prompt("Info desta movimentação (opcional):", raw.info || "");
+    if (t != null) onSalvar(id, { ...raw, info: t.trim().slice(0, 120) }); };
   const transformar = (m, como) => { const raw = invest[m.orig || m.id] || m;
     setFormMov({ ...raw, id: m.orig || m.id, tipo: como === "compra" ? "aporte" : "transf", valorTxt: num(raw.valor || 0), ...(como === "compra" ? { origem:"auto" } : {}) }); };
 
@@ -1507,7 +1511,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
     </div>
   );
 
-  const ctxMes = { itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, transformar,
+  const ctxMes = { itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, transformar, editarInfo,
     planejar: mm => setFormMov({ plano:true, data: mm === mesAtual ? hoje : `${mm}-05`, tipo:"aporte", inv:itens[0]?.id }),
     lancar: () => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id }) };
   if (aba !== "geral") return (
@@ -1667,7 +1671,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
           <HeadBtn onClick={() => setFormMov({ data:hoje, tipo:"aporte", inv:itens[0]?.id })}>+ Adicionar</HeadBtn>
         </Cabeca>
         {!movs.length ? <div style={{ padding:"16px", fontSize:12, color:P.suave, textAlign:"center" }}>Quando você colocar, tirar ou mudar dinheiro de lugar de algum investimento, lance aqui. Assim o rendimento fica certo.</div> : (
-          <div>{movs.filter(m => !m.dest).slice(0, 50).map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf", inv:m.inv } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar}/>)}</div>
+          <div>{movs.filter(m => !m.dest).slice(0, 50).map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf", inv:m.inv } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar} onInfo={editarInfo}/>)}</div>
         )}
       </div>
 
@@ -1760,7 +1764,7 @@ function HistoricoAcoes({ itens, movs, merc, v }) {
 }
 
 // Uma linha de aporte / resgate / transferência
-function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
+function LinhaMov({ m, itens, v, onApagar, onTransformar, onInfo, data }) {
   const it = itens.find(i => i.id === m.inv), para = itens.find(i => i.id === m.para);
   const nome = i => i ? `${i.nome || i.ticker}${i.instituicao ? " · " + i.instituicao : ""}` : "(removido)";
   const tr = m.tipo === "transf" || m.transf;
@@ -1769,7 +1773,12 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, data }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:`1px solid ${P.linha}`, fontSize:12.5, flexWrap:"wrap" }}>
       <span style={{ color:P.suave, width:data === "curta" ? 46 : 72 }}>{data === "curta" ? dataBR(m.data).slice(0, 5) : dataBR(m.data)}</span>
-      <b style={{ flex:1, minWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr ? <>{nome(it)} <span style={{ color:P.suave }}>→</span> {nome(para)}</> : nome(it)}</b>
+      <div style={{ flex:1, minWidth:140, overflow:"hidden" }}>
+        <b style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr ? <>{nome(it)} <span style={{ color:P.suave }}>→</span> {nome(para)}</> : nome(it)}</b>
+        {m.info ? <span onClick={() => onInfo?.(m)} title="Clique para editar" style={{ display:"block", fontSize:11.5, color:"#6B5A99", fontStyle:"italic", cursor: onInfo ? "pointer" : "default",
+          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {m.info}</span>
+          : onInfo && <button onClick={() => onInfo(m)} style={{ border:"none", background:"none", padding:0, fontFamily:FONT, fontSize:11, color:P.suave, cursor:"pointer" }}>＋ info</button>}
+      </div>
       <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:bg, color:fg }}>{txt}</span>
       {m.qtd && !tr ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : tr && m.cotas ? <span style={{ color:P.suave, fontSize:11 }}>comprou {m.cotas} cotas</span> : null}
       <b style={{ width:110, textAlign:"right", color:fg }}>{tr ? "" : m.tipo === "resgate" ? "−" : "+"}{v(m.valor || 0)}</b>
@@ -2015,7 +2024,7 @@ function PlanoAno({ ano, onAba, meta, v, oculto, ...c }) {
 }
 
 // ── Um mês aberto: o que aconteceu (passado) ou o que você planejou (futuro) ──
-function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, planejar, lancar, transformar }) {
+function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje, mesAtual, oculto, feito, onApagar, planejar, lancar, transformar, editarInfo }) {
   const nome = `${MESES[+mm.slice(5) - 1]} ${mm.slice(0, 4)}`;
   const futuro = mm > mesAtual, atual = mm === mesAtual;
   const ini = fimDoMes(mesAnt(mm)), fim = futuro || atual ? fimDoMes(mm) : fimDoMes(mm);
@@ -2104,7 +2113,7 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
       </div>
       {feitos.length > 0 && <div style={caixaBloco}>
         <Cabeca titulo="💸 Aportes, resgates e transferências do mês"/>
-        {feitos.map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf" } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar} data="curta"/>)}
+        {feitos.map(m => <LinhaMov key={m.id} m={m.transf ? { ...m, tipo:"transf" } : m} itens={itens} v={v} onApagar={onApagar} onTransformar={transformar} onInfo={editarInfo} data="curta"/>)}
       </div>}
       <div style={{ fontSize:10.5, color:P.suave }}>{futuro || atual ? "Previsão com o CDI de hoje e as ações no preço atual. " : ""}Valores brutos (antes do imposto). Isto não é recomendação de investimento.</div>
     </div>
@@ -2255,12 +2264,12 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
     }
     if (compraDeSaldo) {   // o dinheiro sai do saldo escolhido e vira as cotas
       onSalvar(f.id || uid(), { kind: f.kind || "mov", inv:origemAtual, tipo:"transf", valor:parseValor(f.valorTxt),
-        qtd: parseInt(f.qtd) || 0, qtdDe:0, para:f.inv, data:f.data || hojeStr() });
+        qtd: parseInt(f.qtd) || 0, qtdDe:0, para:f.inv, data:f.data || hojeStr(), info:(f.info || "").trim().slice(0, 120) });
       return;
     }
     onSalvar(f.id || uid(), { kind: plano ? "plano" : (f.kind || "mov"), inv:f.inv, tipo:f.tipo, valor:parseValor(f.valorTxt),
       qtd: transf ? (paraAcao ? parseInt(f.qtd) || 0 : 0) : (acao ? parseInt(f.qtd) || 0 : 0),
-      qtdDe: transf && acao ? parseInt(f.qtdDe) || 0 : 0, para, data:f.data || hojeStr() });
+      qtdDe: transf && acao ? parseInt(f.qtdDe) || 0 : 0, para, data:f.data || hojeStr(), info:(f.info || "").trim().slice(0, 120) });
   }
   return (
     <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.id && f.tipo === "aporte" ? "De onde saiu o dinheiro da compra?" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
@@ -2290,6 +2299,8 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
           <option value="">Dinheiro novo (de fora dos investimentos)</option></select></Campo>}
       {acao && !transf && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
+      <Campo rotulo="INFO (OPCIONAL)" dica="Fica anotado na movimentação, para você lembrar depois."><input value={f.info || ""} maxLength={120} onChange={e => set({ info:e.target.value })}
+        placeholder={f.tipo === "resgate" ? "Ex.: reforma do estúdio, emergência, viagem…" : "Ex.: sobra do mês, 13º, venda de ensaio…"} style={campoSt}/></Campo>
       <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} onClick={salvar}
         disabled={!parseValor(f.valorTxt) || !f.inv || (transf && (!f.para || f.para === f.inv)) || (novaAcao && !/^[A-Z]{4}\d{1,2}$/.test(f.ticker.trim())) || (paraAcao && !parseInt(f.qtd))}>Salvar</Btn></div>
     </Janela>
