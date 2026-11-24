@@ -623,6 +623,10 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
       <div style={{ background: claro ? "#5E35B1" : P.roxo, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
         <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{title}</div>
         <div style={{ fontSize:11, opacity:.6 }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
+        {!rec && (() => { const ps = rows.filter(r => parcela(r) && r.valor > 0); if (!ps.length) return null;
+          const tot = ps.reduce((t, r) => t + r.valor, 0);
+          return <span title="Soma das parcelas deste mês nesta tabela" style={{ background:"rgba(255,255,255,.18)", borderRadius:999, padding:"2px 9px", fontSize:11, fontWeight:800, whiteSpace:"nowrap" }}>
+            🔁 {ps.length} parcela{ps.length !== 1 ? "s" : ""} · {brl(tot)} no mês</span>; })()}
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {extra}
           <HeadBtn onClick={onCopy} disabled={!rows.length} title="Copia todas as linhas desta tabela para colar na sua planilha">📋 Copiar tudo</HeadBtn>
@@ -1167,7 +1171,33 @@ function resumoParcelas(gastos) {
     lista: ps,
     falta: ps.reduce((s, { r, p }) => s + r.valor * Math.max(0, p.de - p.n), 0),
     terminam: ps.filter(({ p }) => p.n >= p.de).length,
+    doMes: ps.reduce((s, { r }) => s + r.valor, 0),                    // quanto de parcela cai neste mês
+    pagoMes: ps.filter(({ r }) => r.status === "pago").reduce((s, { r }) => s + r.valor, 0),
   };
+}
+// Card das parcelas: quanto cai neste mês e quanto ainda falta depois dele
+function KpiParcelas({ parc }) {
+  const oculto = useContext(OcultarCtx);
+  const f = v => oculto ? TRACOS : brl(v);
+  const falta = parc.doMes - parc.pagoMes;
+  return (
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px", minWidth:0 }}>
+      <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>🔁 Parcelas</div>
+      {!parc.lista.length ? <div style={{ fontSize:13, color:P.suave, marginTop:8 }}>Nenhuma parcela neste mês</div> :
+      <div style={{ display:"flex", gap:14, marginTop:4, flexWrap:"wrap" }}>
+        <div>
+          <div style={{ fontSize:10, fontWeight:700, color:P.suave }}>NESTE MÊS</div>
+          <div style={{ fontSize:19, fontWeight:900, color:P.roxo, whiteSpace:"nowrap" }}>{f(parc.doMes)}</div>
+          <div style={{ fontSize:10.5, fontWeight:700, color: falta > 0 ? P.vermelho : P.verde }}>{falta > 0 ? `falta pagar ${f(falta)}` : "tudo pago ✓"}</div>
+        </div>
+        <div style={{ borderLeft:`1px solid ${P.linha}`, paddingLeft:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:P.suave }}>AINDA FALTA</div>
+          <div style={{ fontSize:19, fontWeight:900, color:P.tinta, whiteSpace:"nowrap" }}>{f(parc.falta)}</div>
+          <div style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>{parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}{parc.terminam ? ` · ${parc.terminam} termina${parc.terminam > 1 ? "m" : ""} agora` : ""}</div>
+        </div>
+      </div>}
+    </div>
+  );
 }
 function ParcelasAndamento({ gastos }) {
   const { lista, falta } = resumoParcelas(gastos);
@@ -1216,9 +1246,7 @@ function MesPessoal({ ano, aba, mes, bySec, analise, edit, add, remove, sortDia,
           variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.tinta }}>
             {analise.abertos.length ? `${analise.abertos.length} conta${analise.abertos.length > 1 ? "s" : ""}` : "Tudo pago ✓"}
             {analise.proxima ? ` · próxima: ${analise.proxima.descricao || "sem nome"} dia ${analise.proxima.dia}` : ""}</span>}/>
-        <KpiLinha label="Parcelas em aberto" value={brl(parc.falta)}
-          variacao={<span style={{ fontSize:10.5, fontWeight:700, color:P.suave }}>
-            {parc.lista.length} parcelamento{parc.lista.length !== 1 ? "s" : ""}{parc.terminam ? ` · ${parc.terminam} termina${parc.terminam > 1 ? "m" : ""} este mês` : ""}</span>}/>
+        <KpiParcelas parc={parc}/>
       </div>
 
       <Avisos avisos={analise.avisos}/>
