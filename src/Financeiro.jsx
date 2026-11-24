@@ -1473,7 +1473,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
     const t = window.prompt("Info desta movimentação (opcional):", raw.info || "");
     if (t != null) onSalvar(id, { ...raw, info: t.trim().slice(0, 120) }); };
   const transformar = (m, como) => { const raw = invest[m.orig || m.id] || m;
-    setFormMov({ ...raw, id: m.orig || m.id, tipo: como === "compra" ? "aporte" : "transf", valorTxt: num(raw.valor || 0), ...(como === "compra" ? { origem:"auto" } : {}) }); };
+    setFormMov({ ...raw, id: m.orig || m.id, tipo: como === "compra" ? "aporte" : como === "editar" ? raw.tipo : "transf", valorTxt: num(raw.valor || 0),
+      ...(como === "compra" ? { origem:"auto" } : {}), ...(como === "editar" ? { editar:true, origem: raw.tipo === "aporte" ? "" : undefined } : {}) }); };
 
   const ontem = somaDias(hoje, -1), fimAnt = fimDoMes(mesAnt(mesAtual));
   const linhas = itens.map(it => {
@@ -1539,7 +1540,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   if (aba !== "geral") return (
     <>
       <MesInvest mm={`${ano}-${pad(aba + 1)}`} {...ctxMes}/>
-      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} merc={merc} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
     </>
   );
 
@@ -1704,7 +1705,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
 
       {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
         onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }}/>}
-      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
+      {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} merc={merc} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
     </div>
   );
 }
@@ -1772,7 +1773,8 @@ function HistoricoAcoes({ itens, movs, merc, v }) {
                   <td style={{ ...td, textAlign:"left" }}><span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:800,
                     background: o.venda ? "#FBD9DB" : "#DCE8FB", color: o.venda ? P.vermelho : "#1F5FBF" }}>{o.venda ? "Venda" : "Compra"}</span></td>
                   <td style={td}>{o.venda ? "−" : "+"}{o.qtd}</td>
-                  <td style={{ ...td, fontWeight:800 }}>{v(pc)}</td>
+                  <td style={{ ...td, fontWeight:800 }}>{o.qtd > 1 && hoje && pc < hoje * .5 && Math.abs(o.valor - hoje) <= hoje * .5 &&
+                    <span title="Confira: o total parece ser o preço de UMA cota. Corrija pelo ✎ na lista de movimentações." style={{ cursor:"help", marginRight:4 }}>⚠️</span>}{v(pc)}</td>
                   <td style={td}>{v(o.valor)}</td>
                   <td style={td}>{v(o.medio)} <span style={{ color:P.suave, fontSize:11 }}>({o.cotas} cota{o.cotas !== 1 ? "s" : ""})</span></td>
                   <td style={{ ...td, fontWeight:800, color: dif == null ? P.suave : dif >= 0 ? P.verde : P.vermelho }}>{dif == null ? "—" : `${dif >= 0 ? "▲" : "▼"} ${Math.abs(dif).toFixed(1).replace(".", ",")}%`}</td>
@@ -1808,6 +1810,7 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, onInfo, data }) {
         style={{ ...mini, padding:"2px 7px" }}>↔ foi transferência?</button>}
       {!tr && m.tipo !== "resgate" && it?.tipo === "acao" && onTransformar && <button onClick={() => onTransformar(m, "compra")} title="O dinheiro saiu do saldo parado na corretora"
         style={{ ...mini, padding:"2px 7px" }}>💵 saiu do saldo parado?</button>}
+      {onTransformar && <button onClick={() => onTransformar(m, "editar")} title="Editar (valor, cotas, data…)" style={{ border:"none", background:"none", color:P.roxo, cursor:"pointer", fontSize:13 }}>✎</button>}
       <button onClick={() => window.confirm("Apagar esta movimentação?") && onApagar(m.orig || m.id)} title="Apagar" style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>
     </div>
   );
@@ -2261,7 +2264,7 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
   );
 }
 const NOVA_ACAO = "__nova_acao__";
-function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
+function FormMov({ inicial, itens, onSalvar, onFechar, plano, merc }) {
   const [f, setF] = useState({ valorTxt:"", qtd:"", qtdDe:"", info:"", ticker:"", nomeAcao:"", ...inicial,
     qtd: inicial.qtd ? String(inicial.qtd) : "", qtdDe: inicial.qtdDe ? String(inicial.qtdDe) : "" });
   const set = p => setF(x => ({ ...x, ...p }));
@@ -2294,7 +2297,7 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
       qtdDe: transf && acao ? parseInt(f.qtdDe) || 0 : 0, para, data:f.data || hojeStr(), info:(f.info || "").trim().slice(0, 120) });
   }
   return (
-    <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.id && f.tipo === "aporte" ? "De onde saiu o dinheiro da compra?" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
+    <Janela titulo={plano ? "Planejar aporte, resgate ou transferência" : f.editar ? "Editar movimentação" : f.id && f.tipo === "aporte" ? "De onde saiu o dinheiro da compra?" : f.id ? "Transformar em transferência" : "Aporte, resgate ou transferência"} onFechar={onFechar}>
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
         {[["aporte", acao ? "Compra" : "Aporte (colocou)", "#1F5FBF"], ["resgate", acao ? "Venda" : "Resgate (tirou)", P.vermelho], ["transf", "↔ Mudou de lugar / comprou ações ou FIIs", "#5B2BA6"]].map(([k, t, cor]) => (
           <button key={k} onClick={() => set({ tipo:k })} style={{ flex:1, border:"none", borderRadius:9, padding:"8px 4px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer",
@@ -2312,7 +2315,7 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
         <Campo rotulo="CÓDIGO DA AÇÃO OU FII" dica="Como aparece na corretora, ex.: ITUB4, VALE3, MXRF11"><input value={f.ticker} onChange={e => set({ ticker:e.target.value.toUpperCase() })} placeholder="ITUB4" style={campoSt}/></Campo>
         <Campo rotulo="NOME (OPCIONAL)"><input value={f.nomeAcao} onChange={e => set({ nomeAcao:e.target.value })} placeholder="Itaú" style={campoSt}/></Campo>
       </>}
-      <Campo rotulo="VALOR (R$)"><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
+      <Campo rotulo={paraAcao || acao ? "VALOR TOTAL (R$)" : "VALOR (R$)"}><input value={f.valorTxt} inputMode="decimal" onChange={e => set({ valorTxt:e.target.value })} placeholder="0,00" style={campoSt}/></Campo>
       {paraAcao && <Campo rotulo="QUANTAS COTAS COMPROU"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       {acao && f.tipo === "aporte" && !plano && <Campo rotulo="DE ONDE SAIU O DINHEIRO?" dica={compraDeSaldo
           ? "O valor é descontado desse saldo na hora e vira as cotas. O total investido não muda." : "Dinheiro que veio de fora: o total investido aumenta."}>
@@ -2320,6 +2323,19 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
           {origens.map(i => <option key={i.id} value={i.id}>{i.tipo === "caixa" ? "💵 " : ""}{i.nome || i.ticker} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}
           <option value="">Dinheiro novo (de fora dos investimentos)</option></select></Campo>}
       {acao && !transf && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
+      {(() => {   // confere o preço por cota: VALOR é o total pago, não o preço de uma cota
+        const q = parseInt(paraAcao ? f.qtd : acao ? (transf ? f.qtdDe : f.qtd) : 0) || 0, val = parseValor(f.valorTxt);
+        if (!q || !val) return null;
+        const tk = paraAcao ? (novaAcao ? f.ticker.trim() : dest?.ticker) : it?.ticker, cot = tk && merc?.acoes?.[tk]?.preco;
+        const pc = val / q, parecePorCota = q > 1 && cot && pc < cot * .5 && Math.abs(val - cot) <= cot * .5;
+        return parecePorCota ? (
+          <div style={{ background:"#FFF4E0", border:"1px solid #F2D49B", borderRadius:9, padding:"8px 10px", fontSize:12, color:"#7A5A00", marginBottom:10 }}>
+            ⚠️ Assim dá <b>{brl(pc)} por cota</b>, mas a cotação de {tk} hoje é {brl(cot)}. Parece que você digitou o preço de <b>uma</b> cota.
+            O campo VALOR é o <b>total</b> pago: {q} cotas × {brl(val)} = <b>{brl(val * q)}</b>.
+            <div style={{ marginTop:6 }}><button onClick={() => set({ valorTxt: num(Math.round(val * q * 100) / 100) })} style={{ ...mini, background:"#fff" }}>Usar {brl(val * q)} como total</button></div>
+          </div>
+        ) : <div style={{ fontSize:11.5, color:P.suave, margin:"-4px 0 10px" }}>= <b style={{ color:P.tinta }}>{brl(pc)} por cota</b>{cot ? ` · cotação hoje ${brl(cot)}` : ""}</div>;
+      })()}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
       <Campo rotulo="INFO (OPCIONAL)" dica="Fica anotado na movimentação, para você lembrar depois."><input value={f.info || ""} maxLength={120} onChange={e => set({ info:e.target.value })}
         placeholder={f.tipo === "resgate" ? "Ex.: reforma do estúdio, emergência, viagem…" : "Ex.: sobra do mês, 13º, venda de ensaio…"} style={campoSt}/></Campo>
