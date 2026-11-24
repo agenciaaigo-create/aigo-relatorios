@@ -255,7 +255,7 @@ body{background:${P.bg}}
 .fin-2col{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
 @media (min-width:1100px){.fin-2col{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .fin-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
-@media (min-width:1200px){.fin-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:1200px){.fin-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.fin-kpis.fin-kpis5{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @media (max-width:560px){.fin-kpis{grid-template-columns:1fr}}
 .fin-avisos{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px}
 .fin-top{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 16px;max-width:1380px;margin:0 auto}
@@ -3703,7 +3703,7 @@ function FinanceiroApp({ senha, sair }) {
             mudarGrupo: (id, g) => edit(id, { categoria:g }) }}/>
         ) : (
           <>
-            <div className="fin-kpis">
+            <div className="fin-kpis fin-kpis5">
               <KpiLinha label="Receitas" value={brl(resumo.receitas)}
                 variacao={<Variacao atual={resumo.receitas} anterior={analise.tAnt.receitas}/>}
                 serie={analise.serie.map(d => d.receitas)} corLinha={P.verde}/>
@@ -3720,6 +3720,7 @@ function FinanceiroApp({ senha, sair }) {
                   {analise.abertos.length ? `${analise.abertos.length} conta${analise.abertos.length > 1 ? "s" : ""}` : "Tudo pago ✓"}
                   {analise.proxima ? ` · próxima: ${analise.proxima.descricao || "sem nome"} dia ${analise.proxima.dia}` : ""}</span>}
                 sub={resumo.receitas - resumo.recebido > 0 ? `a receber: ${brl(resumo.receitas - resumo.recebido)}` : null}/>
+              <KpiParcelas parc={resumoParcelas(analise.gastosMes)}/>
             </div>
 
             <Avisos avisos={analise.avisos}/>
