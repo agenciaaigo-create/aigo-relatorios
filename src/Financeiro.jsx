@@ -326,7 +326,7 @@ function normalize(r) {
 
 // ── Parcelas que andam sozinhas ────────────────────────────────────────────
 // Para cada parcela (Info "3/6"), cria as próximas nos meses seguintes como "Não pago".
-// Só preenche meses futuros (depois do mês atual), até 12 meses à frente, e nunca duplica:
+// Só preenche meses futuros (depois do mês atual), até a última parcela (máx. 5 anos), e nunca duplica:
 // se o mês já tem um lançamento com o mesmo nome e o mesmo total de parcelas, não cria.
 const semAcento = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 const mesNum = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
@@ -348,7 +348,8 @@ function gerarParcelas(rows, apagados, hojeMes) {
     const u = ultima.get(k);
     if (!u || mesNum(r.mes) > mesNum(u.mes) || (r.mes === u.mes && p.n > parcelaDe(u).n)) ultima.set(k, r);
   });
-  const novos = [], agora = Date.now(), limite = mesNum(hojeMes) + 12;
+  // vai até a última parcela (ex.: consórcio de 48 meses), no máximo 5 anos à frente
+  const novos = [], agora = Date.now(), limite = mesNum(hojeMes) + 60;
   for (const [k, r] of ultima) {
     const p = parcelaDe(r), base = mesNum(r.mes);
     for (let n = p.n + 1, m = base + 1; n <= p.de && m <= limite; n++, m++) {
