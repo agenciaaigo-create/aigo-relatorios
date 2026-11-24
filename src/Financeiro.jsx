@@ -1448,7 +1448,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   }
   // 📝 motivo/info de uma movimentação (ex.: "reforma do estúdio")
   const editarInfo = m => { const id = m.orig || m.id, raw = invest[id]; if (!raw) return;
-    const t = window.prompt("Por que você fez essa movimentação? (ex.: reforma do estúdio, emergência, viagem)", raw.info || "");
+    const t = window.prompt("Info desta movimentação (opcional):", raw.info || "");
     if (t != null) onSalvar(id, { ...raw, info: t.trim().slice(0, 120) }); };
   const transformar = (m, como) => { const raw = invest[m.orig || m.id] || m;
     setFormMov({ ...raw, id: m.orig || m.id, tipo: como === "compra" ? "aporte" : "transf", valorTxt: num(raw.valor || 0), ...(como === "compra" ? { origem:"auto" } : {}) }); };
@@ -1777,7 +1777,7 @@ function LinhaMov({ m, itens, v, onApagar, onTransformar, onInfo, data }) {
         <b style={{ display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr ? <>{nome(it)} <span style={{ color:P.suave }}>→</span> {nome(para)}</> : nome(it)}</b>
         {m.info ? <span onClick={() => onInfo?.(m)} title="Clique para editar" style={{ display:"block", fontSize:11.5, color:"#6B5A99", fontStyle:"italic", cursor: onInfo ? "pointer" : "default",
           overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {m.info}</span>
-          : onInfo && <button onClick={() => onInfo(m)} style={{ border:"none", background:"none", padding:0, fontFamily:FONT, fontSize:11, color:P.suave, cursor:"pointer" }}>＋ por quê?</button>}
+          : onInfo && <button onClick={() => onInfo(m)} style={{ border:"none", background:"none", padding:0, fontFamily:FONT, fontSize:11, color:P.suave, cursor:"pointer" }}>＋ info</button>}
       </div>
       <span style={{ borderRadius:6, padding:"2px 8px", fontSize:10.5, fontWeight:700, background:bg, color:fg }}>{txt}</span>
       {m.qtd && !tr ? <span style={{ color:P.suave, fontSize:11 }}>{m.qtd} cotas</span> : tr && m.cotas ? <span style={{ color:P.suave, fontSize:11 }}>comprou {m.cotas} cotas</span> : null}
@@ -2299,7 +2299,7 @@ function FormMov({ inicial, itens, onSalvar, onFechar, plano }) {
           <option value="">Dinheiro novo (de fora dos investimentos)</option></select></Campo>}
       {acao && !transf && <Campo rotulo="QUANTAS COTAS"><input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} style={campoSt}/></Campo>}
       <Campo rotulo="DATA"><input type="date" value={f.data} onChange={e => set({ data:e.target.value })} style={campoSt}/></Campo>
-      <Campo rotulo="POR QUÊ? (OPCIONAL)" dica="Fica anotado na movimentação, para você lembrar depois."><input value={f.info || ""} maxLength={120} onChange={e => set({ info:e.target.value })}
+      <Campo rotulo="INFO (OPCIONAL)" dica="Fica anotado na movimentação, para você lembrar depois."><input value={f.info || ""} maxLength={120} onChange={e => set({ info:e.target.value })}
         placeholder={f.tipo === "resgate" ? "Ex.: reforma do estúdio, emergência, viagem…" : "Ex.: sobra do mês, 13º, venda de ensaio…"} style={campoSt}/></Campo>
       <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} onClick={salvar}
         disabled={!parseValor(f.valorTxt) || !f.inv || (transf && (!f.para || f.para === f.inv)) || (novaAcao && !/^[A-Z]{4}\d{1,2}$/.test(f.ticker.trim())) || (paraAcao && !parseInt(f.qtd))}>Salvar</Btn></div>
