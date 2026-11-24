@@ -1443,7 +1443,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   const oculto = useContext(OcultarCtx);
   const v = x => oculto ? TRACOS : brl(x);
   const vs = x => oculto ? TRACOS : `${x >= 0 ? "+" : "−"}${brl(Math.abs(x))}`;
-  const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov" && x.kind !== "plano").map(([id, x]) => ({ id, ...x }))
+  const itens = Object.entries(invest).filter(([id, x]) => id !== "_meta" && !x.apagado && x.kind !== "mov" && x.kind !== "plano" && x.kind !== "prov").map(([id, x]) => ({ id, ...x }))
     .sort((a, b) => (a.ord || 0) - (b.ord || 0));
   const movs = expandirTransf(Object.entries(invest).filter(([, x]) => x.kind === "mov" && !x.apagado).map(([id, x]) => ({ id, ...x })))
     .sort((a, b) => b.data.localeCompare(a.data));
@@ -1655,6 +1655,8 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         <TabelaInvest itens={itens} onSalvar={onSalvar} onApagar={onApagar} onEditar={setForm}/>
       )}
 
+      <Proventos itens={itens} movs={movs} merc={merc} v={v} oculto={oculto} invest={invest} onSalvar={onSalvar} onApagar={onApagar} hoje={hoje}/>
+
       <HistoricoAcoes itens={itens} movs={movs} merc={merc} v={v}/>
 
       <PlanoAno ano={ano} onAba={onAba} {...ctxMes}/>
@@ -1728,6 +1730,162 @@ function DivisaoRend({ linhas, k, vs }) {
     {temRF && linha(TIPOS_INV.cdi.cor, "caixinhas", rf)}
     {temRV && linha(TIPOS_INV.acao.cor, "ações e FIIs", rv)}
   </div>;
+}
+
+// 💸 Proventos (dividendos, JCP, rendimentos de FII): o que já caiu, o que foi anunciado e uma estimativa
+function useProventos(tickers) {
+  const [d, setD] = useState({ prov:{}, carregando:true });
+  const chave = tickers.join(",");
+  useEffect(() => {
+    if (!tickers.length) { setD({ prov:{}, carregando:false }); return; }
+    let vivo = true;
+    fetch(`/api/fin-mercado?prov=1&tickers=${chave}`).then(r => r.json()).then(j => vivo && setD({ prov:j.prov || {}, carregando:false }))
+      .catch(() => vivo && setD({ prov:{}, carregando:false, erro:true }));
+    return () => { vivo = false; };
+  }, [chave]);
+  return d;
+}
+const brlCota = v => v >= 1 ? brl(v) : `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits:2, maximumFractionDigits: v < 0.01 ? 5 : 4 })}`;   // proventos por cota costumam ter centavos quebrados
+const mesCurto = iso => MESES[+iso.slice(5, 7) - 1].slice(0, 3).toLowerCase();
+const somaDiasIso = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function Proventos({ itens, movs, merc, v, oculto, invest, onSalvar, onApagar, hoje }) {
+  const acoes = itens.filter(i => i.tipo === "acao" && i.ticker);
+  const { prov, carregando } = useProventos(acoes.map(a => a.ticker));
+  const [periodo, setPeriodo] = useState("ano");
+  const [anotar, setAnotar] = useState(null);
+  if (!acoes.length) return null;
+  const ano = hoje.slice(0, 4), umAnoAtras = somaDiasIso(hoje, -365);
+  // cotas que você tinha no fim de um dia (compras até esse dia contam)
+  const cotasEm = (it, dia) => { const { ops } = opsAcao(it, movs); let q = 0; ops.forEach(o => { if (o.data <= dia) q = o.cotas; }); return q; };
+  const pagos = [], futuros = [], porAcao = [];
+  acoes.forEach(it => {
+    const lista = prov[it.ticker]?.lista || [], fii = /11$/.test(it.ticker), q0 = opsAcao(it, movs).q;
+    const ultimos12 = lista.filter(p => p.com > umAnoAtras && p.com <= hoje);
+    const anoCota = ultimos12.reduce((t, p) => t + p.valor, 0);
+    let recebido = 0;
+    lista.forEach(p => {
+      const q = cotasEm(it, p.com); if (!q) return;
+      const pag = p.pag || somaDiasIso(p.com, fii ? 12 : 30), item = { ...p, pag, aprox: !p.pag, it, q, total: p.valor * q };
+      if (pag <= hoje) { pagos.push(item); recebido += item.total; } else futuros.push(item);
+    });
+    // estimativa dos próximos ~100 dias: o que essa ação pagou nessa mesma época do ano passado (FII: com o valor mais recente)
+    const ultValor = lista.filter(p => p.com <= hoje).slice(-1)[0]?.valor || 0;
+    if (q0) lista.filter(p => p.com > somaDiasIso(hoje, -365) && p.com <= somaDiasIso(hoje, -265)).forEach(p => {
+      const pagAnt = p.pag || somaDiasIso(p.com, fii ? 12 : 30), pag = somaDiasIso(pagAnt, 365);
+      if (pag <= hoje || futuros.some(f => f.it.id === it.id && !f.est && Math.abs(new Date(f.pag) - new Date(pag)) < 20 * 864e5)) return;
+      const valor = fii ? ultValor : p.valor;
+      futuros.push({ it, pag, valor, q: q0, total: valor * q0, tipo: p.tipo, est:true });
+    });
+    const preco = merc.acoes?.[it.ticker]?.preco;
+    porAcao.push({ it, recebido, anoCota, porAno: anoCota * q0, yieldPct: preco && anoCota ? anoCota / preco * 100 : null });
+  });
+  // anotados à mão
+  Object.entries(invest).filter(([, x]) => x.kind === "prov" && !x.apagado).forEach(([id, x]) => {
+    const it = acoes.find(a => a.id === x.inv) || { id:x.inv, ticker: itens.find(i => i.id === x.inv)?.ticker || "?" };
+    const item = { id, it, pag:x.data, com:x.data, total:x.valor || 0, q:0, valor:0, tipo:"Anotado", manual:true, info:x.info };
+    if (x.data <= hoje) pagos.push(item); else futuros.push(item);
+    const pa = porAcao.find(p => p.it.id === x.inv); if (pa && x.data <= hoje) pa.recebido += item.total;
+  });
+  const noPeriodo = p => periodo === "ano" ? p.pag.startsWith(ano) : p.pag > umAnoAtras;
+  const recebidoPer = pagos.filter(noPeriodo), totRec = recebidoPer.reduce((t, p) => t + p.total, 0);
+  const anunciados = futuros.filter(f => !f.est).sort((a, b) => a.pag.localeCompare(b.pag)), totAnun = anunciados.reduce((t, p) => t + p.total, 0);
+  const porAno = porAcao.reduce((t, p) => t + p.porAno, 0);
+  const investido = acoes.reduce((t, it) => { const o = opsAcao(it, movs); return t + o.q * o.medio; }, 0);
+  const proximos = [...futuros].sort((a, b) => a.pag.localeCompare(b.pag)).slice(0, 7);
+  const meses = [-2, -1, 0, 1, 2, 3].map(k => { const d = new Date(hoje.slice(0, 7) + "-15T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + k); const m = d.toISOString().slice(0, 7);
+    const real = [...pagos, ...futuros.filter(f => !f.est)].filter(p => p.pag.startsWith(m)).reduce((t, p) => t + p.total, 0);
+    const est = futuros.filter(f => f.est && f.pag.startsWith(m)).reduce((t, p) => t + p.total, 0);
+    return { m, real, est }; });
+  const mx = Math.max(0.01, ...meses.map(x => x.real + x.est));
+  const f = x => oculto ? TRACOS : brl(x);
+  const verde = "#0E6B3B";
+  const k = (l, val, sub, cor) => (
+    <div style={{ flex:"1 1 200px", padding:"12px 16px", borderRight:`1px solid ${P.linha}` }}>
+      <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase" }}>{l}</div>
+      <div style={{ fontSize:21, fontWeight:900, color:cor || P.tinta, marginTop:3 }}>{val}</div>
+      <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{sub}</div>
+    </div>);
+  const tag = (t, est) => <span style={{ fontSize:10, fontWeight:800, borderRadius:6, padding:"2px 7px", marginLeft:6, ...(est ? { background:"#F1EFF6", color:P.suave, border:`1px dashed ${P.lilas}` } : { background:"#DCF0E3", color:verde }) }}>{t}</span>;
+  return (
+    <div style={caixaBloco}>
+      <Cabeca titulo="💸 Proventos (dividendos)" sub="o que suas ações e FIIs pagam" cor={verde}>
+        <button onClick={() => setPeriodo("ano")} style={botaoCab(periodo === "ano")}>{ano}</button>
+        <button onClick={() => setPeriodo("12m")} style={botaoCab(periodo === "12m")}>12 meses</button>
+        <button onClick={() => setAnotar({ inv: acoes[0].id, data: hoje, valorTxt:"", info:"" })} style={botaoCab(false)}>＋ Anotar à mão</button>
+      </Cabeca>
+      {carregando ? <div style={{ padding:"18px 16px", fontSize:12, color:P.suave }}>Buscando os proventos das suas ações…</div> : <>
+      <div style={{ display:"flex", flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+        {k(periodo === "ano" ? `Recebido em ${ano}` : "Recebido em 12 meses", f(totRec), `${recebidoPer.length} pagamento${recebidoPer.length !== 1 ? "s" : ""}`, P.verde)}
+        {k("Vai cair (anunciado)", f(totAnun), anunciados.length ? `${anunciados.length} pagamento${anunciados.length !== 1 ? "s" : ""} até ${dataBR(anunciados[anunciados.length - 1].pag).slice(0, 5)}` : "nada anunciado ainda", verde)}
+        {k("Média por mês", porAno ? `≈ ${f(porAno / 12)}` : "—", "estimativa pelos últimos 12 meses")}
+        {k("Rende por ano (yield)", investido && porAno ? `${(porAno / investido * 100).toFixed(1).replace(".", ",")}%` : "—", porAno ? `≈ ${f(porAno)} por ano no que você tem hoje` : "sem histórico de proventos")}
+      </div>
+      <div style={{ display:"flex", flexWrap:"wrap" }}>
+        <div style={{ flex:"1.25 1 380px", padding:"14px 16px", minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:verde, textTransform:"uppercase", marginBottom:6 }}>📅 Próximos pagamentos</div>
+          {!proximos.length && <div style={{ fontSize:12, color:P.suave, padding:"8px 0" }}>Nenhum provento anunciado ou previsto para as próximas semanas.</div>}
+          {proximos.map((p, i) => (
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop:`1px solid ${P.linha}`, fontSize:12.5 }}>
+              <div style={{ width:56, textAlign:"center", borderRadius:9, padding:"5px 0", lineHeight:1.1, ...(p.est || p.aprox ? { border:"1.5px dashed #9BC9AA" } : { background:"#EAF6EE" }) }}>
+                <b style={{ display:"block", fontSize:15, color:verde }}>{p.est || p.aprox ? "~" : ""}{p.pag.slice(8, 10)}</b><small style={{ fontSize:10, fontWeight:700, color:verde, textTransform:"uppercase" }}>{mesCurto(p.pag)}</small></div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <b>{p.it.ticker}</b><span style={{ fontSize:10, fontWeight:700, color:P.roxo2, background:P.lilasClaro, borderRadius:6, padding:"1px 6px", marginLeft:6 }}>{p.tipo}</span>
+                {p.manual ? tag("anotado") : p.est ? tag("estimativa", true) : tag("anunciado")}
+                <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{p.manual ? (p.info || "anotado à mão") : p.est ? `pagou ~${brlCota(p.valor)} por cota nessa época no ano passado · × ${p.q} cotas`
+                  : `${brlCota(p.valor)} por cota × ${p.q} cota${p.q !== 1 ? "s" : ""} · data com ${dataBR(p.com).slice(0, 5)}${p.aprox ? " · dia do pagamento aproximado" : ""}`}</div>
+              </div>
+              <div style={{ fontWeight:900, fontSize:14, color: p.est ? P.suave : P.verde, whiteSpace:"nowrap" }}>{p.est ? "~" : ""}{f(p.total)}</div>
+              {p.manual && <button onClick={() => window.confirm("Apagar esta anotação?") && onApagar(p.id)} style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer" }}>✕</button>}
+            </div>))}
+          {recebidoPer.length > 0 && <>
+            <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:P.suave, textTransform:"uppercase", margin:"14px 0 6px" }}>✓ Já recebidos</div>
+            {[...recebidoPer].sort((a, b) => b.pag.localeCompare(a.pag)).slice(0, 8).map((p, i) => (
+              <div key={i} style={{ display:"flex", gap:10, fontSize:12, padding:"6px 0", borderTop:`1px solid ${P.linha}` }}>
+                <span style={{ color:P.suave, width:44 }}>{dataBR(p.pag).slice(0, 5)}</span><b style={{ width:64 }}>{p.it.ticker}</b>
+                <span style={{ flex:1, color:P.suave }}>{p.manual ? (p.info || "anotado à mão") : `${p.tipo} · ${brlCota(p.valor)} × ${p.q}`}</span>
+                <b style={{ color:P.verde }}>{f(p.total)}</b>
+                {p.manual && <button onClick={() => window.confirm("Apagar esta anotação?") && onApagar(p.id)} style={{ border:"none", background:"none", color:P.vermelho, cursor:"pointer", padding:0 }}>✕</button>}
+              </div>))}
+          </>}
+        </div>
+        <div style={{ flex:"1 1 320px", padding:"14px 16px", borderLeft:`1px solid ${P.linha}`, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:verde, textTransform:"uppercase" }}>📊 Mês a mês</div>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:10, height:110, margin:"6px 0 4px" }}>
+            {meses.map(x => (
+              <div key={x.m} style={{ flex:1, textAlign:"center", fontSize:10.5, color:P.suave, fontWeight:700 }}>
+                <div style={{ fontSize:10, color:P.tinta, marginBottom:3 }}>{x.real + x.est ? `${x.real ? "" : "~"}${oculto ? "—" : brl(x.real + x.est).replace(",00", "")}` : ""}</div>
+                <div style={{ height:70, display:"flex", flexDirection:"column", justifyContent:"flex-end", alignItems:"center" }}>
+                  {x.est > 0 && <i style={{ display:"block", width:22, height:`${x.est / mx * 70}px`, background:"repeating-linear-gradient(45deg,#BFE3CB,#BFE3CB 4px,#E6F4EA 4px,#E6F4EA 8px)", border:"1px dashed #7DB892", borderRadius: x.real ? 0 : "4px 4px 0 0" }}/>}
+                  {x.real > 0 && <i style={{ display:"block", width:22, height:`${Math.max(2, x.real / mx * 70)}px`, background:P.verde, borderRadius: x.est ? 0 : "4px 4px 0 0" }}/>}
+                </div>
+                <div style={{ marginTop:4, textTransform:"capitalize" }}>{mesCurto(x.m + "-01")}</div>
+              </div>))}
+          </div>
+          <div style={{ fontSize:11, fontWeight:800, letterSpacing:".08em", color:verde, textTransform:"uppercase", margin:"12px 0 4px" }}>🏷️ Por ação</div>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:FONT }}>
+            <thead><tr>{["Ação / FII", "Recebido", "Por ano (est.)", "Yield"].map((h, i) => <th key={h} style={{ fontSize:10, fontWeight:800, color:P.suave, textAlign: i ? "right" : "left", padding:"5px 6px", background:"#F1ECFB" }}>{h}</th>)}</tr></thead>
+            <tbody>{[...porAcao].sort((a, b) => b.porAno - a.porAno).map(p => (
+              <tr key={p.it.id}><td style={{ padding:"7px 6px", borderBottom:`1px solid ${P.linha}`, fontWeight:800 }}>{p.it.ticker}</td>
+                <td style={{ padding:"7px 6px", borderBottom:`1px solid ${P.linha}`, textAlign:"right" }}>{p.recebido ? f(p.recebido) : "—"}</td>
+                <td style={{ padding:"7px 6px", borderBottom:`1px solid ${P.linha}`, textAlign:"right" }}>{p.porAno ? f(p.porAno) : "—"}</td>
+                <td style={{ padding:"7px 6px", borderBottom:`1px solid ${P.linha}`, textAlign:"right", fontWeight:800, color:P.verde }}>{p.yieldPct != null ? `${p.yieldPct.toFixed(1).replace(".", ",")}%` : "—"}</td></tr>))}</tbody>
+          </table>
+        </div>
+      </div>
+      <div style={{ fontSize:11, color:P.suave, padding:"9px 16px", borderTop:`1px solid ${P.linha}`, background:"#FAFAFC" }}>
+        Calculado com as cotas que você tinha na data com de cada provento. Estimativas (tracejadas) repetem o que cada ação pagou na mesma época do ano passado e podem mudar. JCP aparece bruto (antes dos 15% de imposto).</div>
+      </>}
+      {anotar && <Janela titulo="Anotar provento recebido" onFechar={() => setAnotar(null)}>
+        <Campo rotulo="AÇÃO / FII"><select value={anotar.inv} onChange={e => setAnotar(a => ({ ...a, inv:e.target.value }))} style={campoSt}>
+          {acoes.map(a => <option key={a.id} value={a.id}>{a.ticker} · {a.nome}</option>)}</select></Campo>
+        <Campo rotulo="VALOR TOTAL QUE CAIU (R$)"><input value={anotar.valorTxt} inputMode="decimal" onChange={e => setAnotar(a => ({ ...a, valorTxt:e.target.value }))} placeholder="0,00" style={campoSt}/></Campo>
+        <Campo rotulo="DATA"><input type="date" value={anotar.data} onChange={e => setAnotar(a => ({ ...a, data:e.target.value }))} style={campoSt}/></Campo>
+        <Campo rotulo="INFO (OPCIONAL)"><input value={anotar.info} maxLength={120} onChange={e => setAnotar(a => ({ ...a, info:e.target.value }))} placeholder="Ex.: JCP do 3º trimestre" style={campoSt}/></Campo>
+        <div style={{ display:"flex" }}><Btn primary style={{ marginLeft:"auto" }} disabled={!parseValor(anotar.valorTxt)} onClick={() => {
+          onSalvar(uid(), { kind:"prov", inv:anotar.inv, data:anotar.data || hoje, valor:parseValor(anotar.valorTxt), info:anotar.info.trim() }); setAnotar(null); }}>Salvar</Btn></div>
+      </Janela>}
+    </div>
+  );
 }
 
 // 📒 Histórico de compras de ações e FIIs: cada compra com data, cotas, preço por cota e como o preço médio foi mudando

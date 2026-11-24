@@ -83,7 +83,8 @@ async function proventos(t) {
   let v;
   try { v = { lista: await provBrapi(t), fonte: "brapi.dev" }; if (!v.lista.length) throw new Error("vazio"); }
   catch { v = { lista: await provYahoo(t), fonte: "Yahoo Finance" }; }
-  v.lista.sort((a, b) => a.com.localeCompare(b.com));
+  const corte = new Date(Date.now() - 800 * 86400000).toISOString().slice(0, 10);   // só os últimos ~2 anos (e os anunciados)
+  v.lista = v.lista.filter(x => x.com >= corte).sort((a, b) => a.com.localeCompare(b.com));
   cache.set(`prov|${t}`, { t: Date.now(), v });
   return v;
 }
