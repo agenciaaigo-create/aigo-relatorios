@@ -245,10 +245,45 @@ const lerJSON = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k)
 const P = {
   roxo: "#3B1C7E", roxo2: "#4C27A0", lilas: "#C9BCF0", lilasClaro: "#EEE9FB",
   bg: "#F6F4FB", papel: "#FFFFFF", linha: "#E4E0EE", tinta: "#1F1633", suave: "#6E6685",
-  verde: "#1E7B34", vermelho: "#C62828", laranja: "#E07020",
+  verde: "#1E7B34", vermelho: "#C62828", laranja: "#E07020", zebra:"#FBFAFD", thBg:"#FAF9FC", acento:"#4C27A0",
 };
 const FONT = "'Montserrat',sans-serif";
-const CSS = `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap');
+// Ícones de traço fino (mesmo estilo em todo o site)
+const ICONES = {
+  empresa:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3"/>',
+  casa:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  invest:'<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  sair:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+  lua:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  carteira:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M16 13h2M3 10h18M6 6V4h12v2"/>',
+  recibo:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  alvo:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
+  relogio:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  repete:'<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>', grafico:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', copiar:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/>',
+  mais:'<path d="M12 5v14M5 12h14"/>', nuvem:'<path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9a4.5 4.5 0 0 0 1 9z"/>', upload:'<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+};
+function Ic({ n, s = 16, w = 1.8, style }) {
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex:"0 0 auto", ...style }} dangerouslySetInnerHTML={{ __html: ICONES[n] }}/>;
+}
+// Tema: as cores ficam em P (e nos estilos prontos abaixo); trocar o tema muda os valores e a tela redesenha
+const TEMA_CLARO = { roxo:"#3B1C7E", roxo2:"#4C27A0", lilas:"#C9BCF0", lilasClaro:"#EEE9FB", bg:"#F6F4FB", papel:"#FFFFFF", linha:"#E4E0EE", tinta:"#1F1633", suave:"#6E6685",
+  verde:"#1E7B34", vermelho:"#C62828", laranja:"#E07020", zebra:"#FBFAFD", thBg:"#FAF9FC", acento:"#4C27A0" };
+const TEMA_ESCURO = { roxo:"#B49BFF", roxo2:"#9C7CF5", lilas:"#4A3F6B", lilasClaro:"#2A2340", bg:"#13111A", papel:"#1C1926", linha:"#2E2A3B", tinta:"#EEEAF7", suave:"#A39CB8",
+  verde:"#5BD07A", vermelho:"#FF6B6B", laranja:"#FF9A4D", zebra:"#201C2B", thBg:"#221E2E", acento:"#9C7CF5" };
+let TEMA_ESC = false;
+function aplicarTema(escuro) {
+  TEMA_ESC = escuro;
+  Object.assign(P, escuro ? TEMA_ESCURO : TEMA_CLARO);
+  Object.assign(cellBase, { color:P.tinta });
+  Object.assign(caixaBloco, { background:P.papel, border:`1px solid ${P.linha}` });
+  Object.assign(mini, { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo });
+  Object.assign(campoSt, { border:`1px solid ${P.lilas}`, color:P.tinta, background:P.papel });
+}
+const CSS = () => `@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:${P.bg}}
 ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#cfc6e8;border-radius:6px}
@@ -268,7 +303,24 @@ body{background:${P.bg}}
 .fin-del{opacity:.25}
 @media (hover:none){.fin-del{opacity:.6}}
 .fin-ocultar .fin-oculto{visibility:hidden}
-.fin-tabs::-webkit-scrollbar{height:0}`;
+.fin-tabs::-webkit-scrollbar{height:0}
+td,.fin-cell,.fin-num{font-variant-numeric:tabular-nums}
+.fin-zebra tbody tr:nth-child(even) td{background:${P.zebra}}
+.fin-app{display:flex;min-height:100vh}
+.fin-side{display:none}
+.fin-conteudo{flex:1;min-width:0}
+@media (min-width:1100px){
+  .fin-side{display:flex;flex-direction:column;width:212px;flex:0 0 212px;background:${P.papel};border-right:1px solid ${P.linha};padding:18px 12px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .fin-so-estreito{display:none !important}
+}
+@media (max-width:1099px){.fin-so-largo{display:none !important}}
+.fin-si{display:flex;align-items:center;gap:9px;width:100%;border:none;background:none;padding:8px 10px;border-radius:9px;font-family:${FONT};font-weight:700;font-size:13px;color:${P.suave};cursor:pointer;text-align:left}
+.fin-si:hover{background:${P.lilasClaro}}
+.fin-si.on{background:${P.lilasClaro};color:${P.roxo2}}
+.fin-si.sm{padding:5px 10px 5px 33px;font-size:12.5px;font-weight:600}
+.fin-ib{width:34px;height:34px;border:1px solid ${P.linha};border-radius:10px;background:${P.papel};color:${P.roxo2};display:inline-grid;place-items:center;cursor:pointer;padding:0;flex:0 0 auto}
+select,input{color-scheme:${TEMA_ESC ? "dark" : "light"}}
+body{background:${P.bg}}`;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -605,9 +657,9 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
   const total = pago + naoPago;
   const rec = secao === "receita";   // Receitas num roxo um pouco mais claro, para separar do que sai
   const claro = rec || secao === "p_casa";
-  const th = { background: claro ? "#DCD0F7" : P.lilas, color:P.tinta, fontSize:10.5, fontWeight:700, padding:"5px 6px",
-    borderRight:`1px solid ${P.papel}`, whiteSpace:"nowrap", textAlign:"left" };
-  const td = { borderBottom:`1px solid ${P.linha}`, borderRight:`1px solid ${P.linha}`, padding:0, background:P.papel };
+  const th = { background:P.thBg, color:P.suave, fontSize:9.5, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", padding:"7px 6px",
+    whiteSpace:"nowrap", textAlign:"left", borderBottom:`1px solid ${P.linha}`, position:"sticky", top:0, zIndex:1 };
+  const td = { borderBottom:`1px solid ${P.linha}`, padding:0 };
   const todos = rows.length > 0 && rows.every(r => sel.has(r.id));
   const caixa = { width:14, height:14, cursor:"pointer", accentColor:P.roxo2 };
   const fundo = r => sel.has(r.id) ? { background:"#EFE8FF" } : destaque.has(r.id) ? { background:"#FFEFA0" } : {};
@@ -632,23 +684,34 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
     window.addEventListener("pointercancel", fim);
   }
 
+  // tabela vazia vira uma barrinha
+  if (!rows.length) return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", background:P.papel, border:`1px dashed ${P.lilas}`, borderRadius:12, padding:"9px 12px" }}>
+      <span style={{ width:4, height:16, borderRadius:2, background: claro ? "#7B4FD6" : P.roxo2 }}/>
+      <b style={{ fontSize:13.5 }}>{title}</b><span style={{ fontSize:11.5, color:P.suave }}>nenhum lançamento</span>
+      <div style={{ marginLeft:"auto", display:"flex", gap:6, alignItems:"center" }}>{extra}
+        <button onClick={onAdd} style={{ display:"inline-flex", alignItems:"center", gap:5, border:"none", background:"none", color:P.roxo2, fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>
+          <Ic n="mais" s={13}/> Adicionar</button></div>
+    </div>
+  );
   return (
-    <div style={{ background:P.papel, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 3px rgba(59,28,126,.08)",
+    <div style={{ background:P.papel, borderRadius:14, overflow:"hidden", boxShadow:"0 1px 2px rgba(40,20,80,.04)",
       border:`1px solid ${P.linha}` }}>
-      <div style={{ background: claro ? "#5E35B1" : P.roxo, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-        <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{title}</div>
-        <div style={{ fontSize:11, opacity:.6 }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
+      <div style={{ background:P.papel, color:P.tinta, padding:"10px 12px", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+        <span style={{ width:4, height:16, borderRadius:2, background: claro ? "#7B4FD6" : P.roxo2 }}/>
+        <div style={{ fontSize:13.5, fontWeight:800 }}>{title}</div>
+        <div style={{ fontSize:11.5, color:P.suave }}>{rows.length} {rows.length === 1 ? "linha" : "linhas"}</div>
         {!rec && (() => { const ps = rows.filter(r => parcela(r) && r.valor > 0); if (!ps.length) return null;
           const tot = ps.reduce((t, r) => t + r.valor, 0);
-          return <span title="Soma das parcelas deste mês nesta tabela" style={{ background:"rgba(255,255,255,.18)", borderRadius:999, padding:"2px 9px", fontSize:11, fontWeight:800, whiteSpace:"nowrap" }}>
-            🔁 {ps.length} parcela{ps.length !== 1 ? "s" : ""} · {brl(tot)} no mês</span>; })()}
+          return <span title="Soma das parcelas deste mês nesta tabela" style={{ background:P.lilasClaro, color:P.roxo2, borderRadius:999, padding:"2px 9px", fontSize:11, fontWeight:800, whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:4 }}>
+            <Ic n="repete" s={11}/> {ps.length} parcela{ps.length !== 1 ? "s" : ""} · {brl(tot)} no mês</span>; })()}
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {extra}
-          <HeadBtn onClick={onCopy} disabled={!rows.length} title="Copia todas as linhas desta tabela para colar na sua planilha">📋 Copiar tudo</HeadBtn>
+          <HeadBtn onClick={onCopy} disabled={!rows.length} title="Copia todas as linhas desta tabela para colar na sua planilha">Copiar</HeadBtn>
         </div>
       </div>
-      <div style={{ overflowX:"auto" }}>
-        <table style={{ borderCollapse:"collapse", width:"100%", minWidth:cols.reduce((s, c) => s + COL[c].w, 54), fontFamily:FONT }}>
+      <div style={{ overflowX:"auto", ...(rows.length > 14 ? { maxHeight:"68vh", overflowY:"auto" } : {}) }}>
+        <table className="fin-zebra" style={{ borderCollapse:"collapse", width:"100%", minWidth:cols.reduce((s, c) => s + COL[c].w, 54), fontFamily:FONT }}>
           <thead>
             <tr>
               <th style={{ ...th, width:28, textAlign:"center" }}>
@@ -700,7 +763,7 @@ function Section({ secao, rows, onEdit, onAdd, onRemove, onSortDia, onCopy, extr
             ))}
             <tr>
               <td colSpan={cols.length + 2} style={{ padding:0 }}>
-                <button onClick={onAdd} style={{ width:"100%", border:"none", background: claro ? "#F3EEFD" : P.lilasClaro, color:P.roxo2,
+                <button onClick={onAdd} style={{ width:"100%", border:"none", background:"transparent", color:P.roxo2,
                   fontFamily:FONT, fontSize:11.5, fontWeight:700, padding:"6px", cursor:"pointer", textAlign:"left", paddingLeft:12 }}>
                   ＋ Adicionar linha
                 </button>
@@ -728,7 +791,7 @@ function Metade({ valor, grande }) {
 function Total({ label, value, color, highlight, metade }) {
   return (
     <div style={{ flex:"1 1 110px", padding:"7px 12px", borderRight:`1px solid ${P.linha}`,
-      background: highlight ? "#FFF4F4" : "transparent" }}>
+      background: highlight ? (TEMA_ESC ? "#2A1A20" : "#FFF4F4") : "transparent" }}>
       <div style={{ fontSize:10, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".07em" }}>{label}</div>
       <div style={{ fontSize:13.5, fontWeight:800, color, marginTop:1 }}>{brl(value)}</div>
       {metade && value > 0 && <Metade valor={value}/>}
@@ -739,7 +802,7 @@ function Total({ label, value, color, highlight, metade }) {
 function HeadBtn({ children, onClick, disabled, title }) {
   return (
     <button onClick={onClick} disabled={disabled} title={title} style={{
-      background:"rgba(255,255,255,.14)", border:"1px solid rgba(255,255,255,.22)", color:"#fff", borderRadius:8,
+      background:"transparent", border:`1px solid ${P.linha}`, color:P.roxo2, borderRadius:8,
       padding:"4px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:disabled ? "default" : "pointer",
       opacity:disabled ? .45 : 1, whiteSpace:"nowrap" }}>{children}</button>
   );
@@ -758,9 +821,9 @@ function Btn({ children, onClick, primary, disabled, style }) {
 function Kpi({ label, value, sub, color }) {
   const oculto = useContext(OcultarCtx);
   return (
-    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"14px 16px",
-      borderTop:`4px solid ${color}` }}>
-      <div style={{ fontSize:10, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:14, padding:"13px 16px",
+      borderLeft:`3px solid ${color}`, boxShadow:"0 1px 2px rgba(40,20,80,.04)" }}>
+      <RotuloKpi label={label} cor={color}/>
       <div style={{ fontSize:22, fontWeight:900, color:P.tinta, marginTop:6, letterSpacing:"-.01em" }}>{oculto ? esconderValores(value) : value}</div>
       {sub && <div style={{ fontSize:11, color:P.suave, marginTop:4 }}>{oculto ? esconderValores(sub) : sub}</div>}
     </div>
@@ -768,11 +831,15 @@ function Kpi({ label, value, sub, color }) {
 }
 
 // ── Cabeçalho roxo dos blocos ──────────────────────────────────────────────
-function Cabeca({ titulo, sub, children, cor = P.roxo }) {
+// tira o emoji do começo do título (os blocos agora têm visual limpo)
+const semEmoji = t => typeof t === "string" ? t.replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "") : t;
+function Cabeca({ titulo, sub, children, cor }) {
+  const c = cor && !TEMA_ESC ? cor : P.roxo2;
   return (
-    <div style={{ background:cor, color:"#fff", padding:"8px 12px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-      <div style={{ fontSize:11.5, fontWeight:800, letterSpacing:".08em", textTransform:"uppercase" }}>{titulo}</div>
-      {sub && <div style={{ fontSize:11, opacity:.65 }}>{sub}</div>}
+    <div style={{ background:P.papel, color:P.tinta, padding:"11px 14px", display:"flex", alignItems:"center", gap:9, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+      <span style={{ width:4, height:16, borderRadius:2, background:c }}/>
+      <div style={{ fontSize:13.5, fontWeight:800 }}>{semEmoji(titulo)}</div>
+      {sub && <div style={{ fontSize:11.5, color:P.suave, fontWeight:500 }}>{sub}</div>}
       {children && <div style={{ marginLeft:"auto", display:"flex", gap:6, flexWrap:"wrap" }}>{children}</div>}
     </div>
   );
@@ -803,19 +870,27 @@ function Linha({ valores, cor, w = 110, h = 34 }) {
   );
 }
 
+// ícone de cada card pelo nome
+const iconeKpi = l => /receita|recebid/i.test(l) ? "carteira" : /lucro|sobr|saldo|meta/i.test(l) ? "alvo" : /falta/i.test(l) ? "relogio" : /pago/i.test(l) ? "check"
+  : /parcela/i.test(l) ? "repete" : /gasto/i.test(l) ? "recibo" : /patrim|rend|invest/i.test(l) ? "invest" : "grafico";
+function RotuloKpi({ label, cor }) {
+  return <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:11.5, fontWeight:700, color:P.suave }}>
+    <span style={{ width:24, height:24, borderRadius:7, display:"grid", placeItems:"center", background:P.lilasClaro, color:cor }}><Ic n={iconeKpi(label)} s={14}/></span>{label}</div>;
+}
 function KpiLinha({ label, value, cor, variacao, sub, serie, corLinha, metade }) {
   const oculto = useContext(OcultarCtx);
+  const faixa = cor || corLinha || P.roxo2;
   return (
-    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px",
-      display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:8, minWidth:0 }}>
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderLeft:`3px solid ${faixa}`, borderRadius:14, padding:"12px 14px",
+      position:"relative", minWidth:0, boxShadow:"0 1px 2px rgba(40,20,80,.04)" }}>
+      {serie && <div className="fin-oculto" style={{ position:"absolute", right:12, top:10 }}><Linha valores={serie} cor={corLinha} w={80} h={28}/></div>}
       <div style={{ minWidth:0 }}>
-        <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>{label}</div>
-        <div style={{ fontSize:21, fontWeight:900, color: oculto ? P.tinta : (cor || P.tinta), marginTop:4, whiteSpace:"nowrap" }}>{oculto ? esconderValores(value) : value}</div>
+        <RotuloKpi label={label} cor={faixa}/>
+        <div style={{ fontSize:22, fontWeight:900, color: oculto ? P.tinta : (cor || P.tinta), marginTop:8, whiteSpace:"nowrap", letterSpacing:"-.01em" }}>{oculto ? esconderValores(value) : value}</div>
         {metade > 0 && <Metade valor={metade} grande/>}
         <div className="fin-oculto" style={{ marginTop:3 }}>{variacao}</div>
         {sub && <div style={{ fontSize:11, color:P.suave, marginTop:2 }}>{oculto ? esconderValores(sub) : sub}</div>}
       </div>
-      {serie && <div className="fin-oculto"><Linha valores={serie} cor={corLinha}/></div>}
     </div>
   );
 }
@@ -890,8 +965,8 @@ function ParaOndeFoi({ rows, anteriores = [], titulo, compararCom, atualNome, ro
   }, [rows, anteriores, modo, cmp, JSON.stringify(COR_USER)]);
   const mx = Math.max(1, ...grupos.map(g => cmp ? Math.max(g.valor, g.anterior) : g.valor));
   const nomeAtual = atualNome || titulo || "este mês";
-  const botao = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff",
-    border:"1px solid rgba(255,255,255,.22)", borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
+  const botao = on => ({ background: on ? P.roxo2 : "transparent", color: on ? "#fff" : P.roxo2,
+    border:`1px solid ${on ? P.roxo2 : P.linha}`, borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
 
   return (
     <div style={caixaBloco}>
@@ -1197,9 +1272,9 @@ function KpiParcelas({ parc }) {
   const falta = parc.doMes - parc.pagoMes;
   // mesmo formato e altura dos outros cards: rótulo, valor grande e duas linhas pequenas
   return (
-    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, padding:"12px 14px", minWidth:0, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
-      <div style={{ fontSize:9.5, fontWeight:700, color:P.suave, textTransform:"uppercase", letterSpacing:".08em" }}>🔁 Parcelas do mês</div>
-      <div style={{ fontSize:21, fontWeight:900, color:P.roxo, marginTop:4, whiteSpace:"nowrap" }}>{parc.lista.length ? f(parc.doMes) : brl(0)}</div>
+    <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderLeft:`3px solid ${P.roxo2}`, borderRadius:14, padding:"12px 14px", minWidth:0, boxShadow:"0 1px 2px rgba(40,20,80,.04)" }}>
+      <RotuloKpi label="Parcelas do mês" cor={P.roxo2}/>
+      <div style={{ fontSize:22, fontWeight:900, color:P.roxo, marginTop:8, whiteSpace:"nowrap", letterSpacing:"-.01em" }}>{parc.lista.length ? f(parc.doMes) : brl(0)}</div>
       {parc.lista.length ? <>
         <div style={{ fontSize:10.5, fontWeight:700, marginTop:3, color: falta > 0 ? P.vermelho : P.verde }}>{falta > 0 ? `falta pagar ${f(falta)}` : "tudo pago ✓"}</div>
         <div style={{ fontSize:11, color:P.suave, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}
@@ -1727,7 +1802,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
   );
 }
 const mini = { border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:7, padding:"3px 8px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" };
-const botaoCab = on => ({ background: on ? "#fff" : "rgba(255,255,255,.14)", color: on ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)",
+const botaoCab = on => ({ background: on ? P.roxo2 : "transparent", color: on ? "#fff" : P.roxo2, border:`1px solid ${on ? P.roxo2 : P.linha}`,
   borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:10.5, fontWeight:700, cursor:"pointer" });
 
 // Divisão do rendimento nos cards do topo: caixinhas × ações e FIIs
@@ -2659,12 +2734,12 @@ function Clientes({ clientes, rows, ano, onSalvar, onApagar, onMeta, setMsg }) {
     <div style={caixaBloco}>
       <Cabeca titulo="👥 Clientes" sub={`${lista.length} cliente${lista.length !== 1 ? "s" : ""} · ${brl(total)} por mês`}>
         {[["cartoes", "▦ Cartões"], ["tabela", "☰ Editar"]].map(([k, t]) => (
-          <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k} style={{ background: vista === k ? "#fff" : "rgba(255,255,255,.14)",
-            color: vista === k ? P.roxo : "#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:8, padding:"4px 10px", fontFamily:FONT,
+          <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k} style={{ background: vista === k ? P.roxo2 : "transparent",
+            color: vista === k ? "#fff" : P.roxo2, border:`1px solid ${vista === k ? P.roxo2 : P.linha}`, borderRadius:8, padding:"4px 10px", fontFamily:FONT,
             fontSize:11, fontWeight:700, cursor:"pointer" }}>{t}</button>
         ))}
         <HeadBtn onClick={trazer} title="Cria a lista a partir das receitas de Social Media">↧ Trazer das receitas</HeadBtn>
-        <HeadBtn onClick={copiar} disabled={!lista.length}>📋 Copiar tudo</HeadBtn>
+        <HeadBtn onClick={copiar} disabled={!lista.length}>Copiar</HeadBtn>
       </Cabeca>
       {vista === "cartoes" ? <CartoesClientes lista={lista} porValor={porValor} total={total} meta={meta} corDe={corDe}
         onPago={(c, sim) => onSalvar(c.id, { ...c, pago: sim ? mesHoje() : "" })}
@@ -3189,6 +3264,10 @@ function FinanceiroApp({ senha, sair }) {
   useEffect(() => { try { localStorage.setItem("aigo-fin-espaco", espaco); } catch {} }, [espaco]);
   // 👁 Ocultar valores do topo (fica lembrado neste aparelho)
   const [ocultar, setOcultar] = useState(() => { try { return localStorage.getItem("aigo-fin-ocultar") === "1"; } catch { return false; } });
+  // 🌙 modo escuro (fica lembrado neste aparelho)
+  const [escuro, setEscuro] = useState(() => { try { return localStorage.getItem("aigo-fin-tema") === "escuro"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem("aigo-fin-tema", escuro ? "escuro" : "claro"); } catch {} }, [escuro]);
+  aplicarTema(escuro);
   useEffect(() => { try { localStorage.setItem("aigo-fin-ocultar", ocultar ? "1" : "0"); } catch {} }, [ocultar]);
   const pessoal = espaco === "pessoal";
   const [review, setReview] = useState(() => lerJSON(REVIEW_KEY, []).map(normalize));
@@ -3614,6 +3693,13 @@ function FinanceiroApp({ senha, sair }) {
   }
 
   const titulo = aba === "geral" ? `Geral ${ano}` : `${MESES[aba]} ${ano}`;
+  // bolinha no mês: vermelha = conta atrasada; verde = tudo pago
+  const pontoMes = MESES.map((_, i) => {
+    const m = mesKey(ano, i), hj = hojeISO(), gs = rowsEsp.filter(r => r.mes === m && r.secao !== "receita" && r.valor > 0);
+    if (!gs.length || m > hj.slice(0, 7)) return null;
+    if (gs.some(r => r.status !== "pago" && (m < hj.slice(0, 7) || (r.dia && +r.dia < +hj.slice(8, 10))))) return "atraso";
+    return gs.every(r => r.status === "pago") ? "ok" : null;
+  });
   const barraBackup = <>
     <span>{nuvem.estado === "ok" ? "Os dados ficam salvos na nuvem e sincronizam entre os seus aparelhos." : "Os dados ficam salvos neste navegador."}</span>
     <Btn onClick={() => setBackupJan({ modo:"fazer" })} style={{ padding:"6px 12px", fontSize:11 }}>💾 Fazer backup completo</Btn>
@@ -3623,72 +3709,94 @@ function FinanceiroApp({ senha, sair }) {
   </>;
 
   const tab = active => ({
-    padding:"10px 16px", border:"none", borderTop:`3px solid ${active ? P.roxo : "transparent"}`,
-    background: active ? P.papel : "transparent", color: active ? P.roxo : P.suave,
+    padding:"10px 14px", border:"none", borderBottom:`2.5px solid ${active ? P.roxo2 : "transparent"}`,
+    background:"transparent", color: active ? P.roxo2 : P.suave,
     fontFamily:FONT, fontSize:13, fontWeight: active ? 800 : 600, cursor:"pointer", whiteSpace:"nowrap",
   });
 
   return (
     <OcultarCtx.Provider value={ocultar}><CoresCtx.Provider value={() => setPainelCores(true)}>
-    <div className={ocultar ? "fin-ocultar" : ""} style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}>
-      <style>{CSS}</style>
+    <div className={"fin-app" + (ocultar ? " fin-ocultar" : "")} style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, color:P.tinta }}
+      onDragOver={e => { if (!investir && [...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); setDrag(true); } }}>
+      <style>{CSS()}</style>
 
+      {/* menu lateral (computador) */}
+      <aside className="fin-side">
+        <div style={{ fontWeight:900, fontSize:19, color:P.roxo, padding:"0 8px 16px" }}>ai<span style={{ color:P.laranja }}>.go</span>
+          <span style={{ fontWeight:700, fontSize:14, color:P.tinta, marginLeft:6 }}>Financeiro</span></div>
+        {[["empresa", "empresa", "Empresa"], ["pessoal", "casa", "Pessoal"], ["invest", "invest", "Investimentos"]].map(([k, ic, t]) => {
+          const on = k === "invest" ? investir : !investir && espaco === k;
+          return <button key={k} className={"fin-si" + (on ? " on" : "")} onClick={() => { if (k === "invest") setInvestir(true); else { setEspaco(k); setInvestir(false); } setSel(new Set()); }}>
+            <Ic n={ic} s={16}/>{t}</button>; })}
+        <div style={{ display:"flex", alignItems:"center", gap:4, margin:"18px 10px 6px", fontSize:11, fontWeight:800, letterSpacing:".1em", color:P.suave }}>
+          <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:"0 4px" }}>‹</button>
+          <span style={{ color:P.roxo2 }}>{ano}</span>
+          <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:"0 4px" }}>›</button></div>
+        <button className={"fin-si" + (aba === "geral" ? " on" : "")} onClick={() => setAba("geral")}><Ic n="grafico" s={15}/>Geral</button>
+        {MESES.map((m, i) => (
+          <button key={m} className={"fin-si sm" + (aba === i ? " on" : "")} onClick={() => setAba(i)}>{m}
+            {!investir && pontoMes[i] && <i title={pontoMes[i] === "atraso" ? "Tem conta atrasada" : "Tudo pago"} style={{ width:7, height:7, borderRadius:"50%", marginLeft:"auto",
+              background: pontoMes[i] === "atraso" ? P.vermelho : P.verde }}/>}</button>))}
+      </aside>
+
+      <div className="fin-conteudo">
       {/* topo */}
-      <div style={{ background:P.papel, borderBottom:`1px solid ${P.linha}` }}>
-        <div className="fin-top">
-          <div style={{ fontWeight:900, fontSize:18, color:P.roxo }}>ai<span style={{ color:P.laranja }}>.go</span></div>
-          <div className="fin-nome" style={{ fontWeight:700, fontSize:15 }}>Financeiro</div>
-          <div role="tablist" aria-label="Empresa ou pessoal" style={{ display:"inline-flex", background:P.lilasClaro, borderRadius:100, padding:3 }}>
-            {Object.entries(ESPACOS).map(([k, e]) => (
-              <button key={k} role="tab" aria-selected={!investir && espaco === k} onClick={() => { setEspaco(k); setInvestir(false); setSel(new Set()); }}
-                style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12, padding:"5px 13px", borderRadius:100, whiteSpace:"nowrap",
-                  background: !investir && espaco === k ? P.papel : "transparent", color: !investir && espaco === k ? P.roxo : P.suave, fontWeight: !investir && espaco === k ? 800 : 600,
-                  boxShadow: !investir && espaco === k ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>{e.icone}<span className="fin-nome"> {e.nome}</span></button>
-            ))}
-            <button role="tab" aria-selected={investir} onClick={() => { setInvestir(true); setSel(new Set()); }}
-              style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12, padding:"5px 13px", borderRadius:100, whiteSpace:"nowrap",
-                background: investir ? P.papel : "transparent", color: investir ? P.roxo : P.suave, fontWeight: investir ? 800 : 600,
-                boxShadow: investir ? "0 1px 3px rgba(59,28,126,.15)" : "none" }}>💰<span className="fin-nome"> Investimentos</span></button>
+      <div style={{ background:P.papel, borderBottom:`1px solid ${P.linha}`, position:"sticky", top:0, zIndex:15 }}>
+        <div className="fin-top" style={{ maxWidth:"none" }}>
+          <div className="fin-so-estreito" style={{ fontWeight:900, fontSize:18, color:P.roxo }}>ai<span style={{ color:P.laranja }}>.go</span></div>
+          <div className="fin-so-estreito fin-nome" style={{ fontWeight:700, fontSize:15 }}>Financeiro</div>
+          <div className="fin-so-estreito" role="tablist" aria-label="Empresa ou pessoal" style={{ display:"inline-flex", background:P.lilasClaro, borderRadius:11, padding:3, gap:2 }}>
+            {[["empresa", "empresa", "Empresa"], ["pessoal", "casa", "Pessoal"], ["invest", "invest", "Investimentos"]].map(([k, ic, t]) => {
+              const on = k === "invest" ? investir : !investir && espaco === k;
+              return <button key={k} role="tab" aria-selected={on} onClick={() => { if (k === "invest") setInvestir(true); else { setEspaco(k); setInvestir(false); } setSel(new Set()); }}
+                style={{ border:"none", cursor:"pointer", fontFamily:FONT, fontSize:12.5, padding:"6px 12px", borderRadius:8, whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:6,
+                  background: on ? P.papel : "transparent", color: on ? P.roxo2 : P.suave, fontWeight: on ? 800 : 600, boxShadow: on ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
+                <Ic n={ic} s={14}/><span className="fin-nome">{t}</span></button>; })}
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:4, marginLeft:4 }}>
+          <div className="fin-so-estreito" style={{ display:"flex", alignItems:"center", gap:4, marginLeft:4 }}>
             <button onClick={() => setAno(a => a - 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>‹</button>
-            <span style={{ fontWeight:800, fontSize:15, color:P.roxo }}>{ano}</span>
+            <span style={{ fontWeight:800, fontSize:15, color:P.roxo2 }}>{ano}</span>
             <button onClick={() => setAno(a => a + 1)} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave, fontSize:14, padding:4 }}>›</button>
           </div>
+          <div className="fin-so-largo" style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+            <b style={{ fontSize:16 }}>{investir ? (aba === "geral" ? "Investimentos" : `${MESES[aba]} ${ano}`) : titulo}</b>
+            <span style={{ fontSize:13, color:P.suave, fontWeight:600 }}>{investir ? (aba === "geral" ? new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" }) : "Investimentos") : pessoal ? "Pessoal" : "Empresa"}</span>
+          </div>
+          <div style={{ marginLeft:"auto" }}/>
+          {!investir && <button onClick={() => fileRef.current?.click()} disabled={reading} style={{ display:"inline-flex", alignItems:"center", gap:7, border:"none", background:P.roxo2, color:"#fff",
+            borderRadius:10, padding:"8px 14px", fontFamily:FONT, fontSize:12.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" }}>
+            <Ic n="camera" s={15}/><span className="fin-nome">{reading ? "Lendo…" : "Enviar prints"}</span></button>}
           {(() => {
             const hora = d => d ? " às " + d.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }) : "";
-            const st = !salvo.ok ? ["#FFF0F0", P.vermelho, "⚠ Não foi salvo", "O navegador não deixou salvar. Não use janela anônima."]
-              : nuvem.estado === "ok" ? ["#EEF8F0", P.verde, `☁ Sincronizado${hora(nuvem.quando)}`, "Salvo na nuvem: aparece igual no computador e no iPad"]
+            const st = !salvo.ok ? ["#FFF0F0", "#C62828", "⚠ Não foi salvo", "O navegador não deixou salvar. Não use janela anônima."]
+              : nuvem.estado === "ok" ? [escuro ? "#1B3324" : "#E4F4E8", P.verde, `● Sincronizado${hora(nuvem.quando)}`, "Salvo na nuvem: aparece igual no computador e no iPad"]
               : nuvem.estado === "sem" ? ["#FFF6E5", "#A85A00", "⚠ Nuvem não conectada", "Por enquanto salvo só neste aparelho"]
               : nuvem.estado === "erro" ? ["#FFF6E5", "#A85A00", "⚠ Sem conexão", "Salvo neste aparelho; sincroniza sozinho quando a internet voltar"]
-              : [P.lilasClaro, P.roxo, "☁ Sincronizando…", "Enviando para a nuvem"];
-            return <div title={st[3]} style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:100,
-              whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>;
+              : [P.lilasClaro, P.roxo2, "● Sincronizando…", "Enviando para a nuvem"];
+            return <>
+              <div title={st[3]} className="fin-so-largo" style={{ fontSize:11.5, fontWeight:700, padding:"6px 11px", borderRadius:100, whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>
+              <span title={`${st[2]} — ${st[3]}`} className="fin-so-estreito" style={{ width:10, height:10, borderRadius:"50%", background:st[1], flex:"0 0 auto" }}/>
+            </>;
           })()}
-          <button onClick={() => setBusca(true)} aria-label="Buscar lançamentos" title="Buscar (⌘ F)"
-            style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8, width:34, height:31,
-              display:"inline-flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, flex:"0 0 auto" }}>
-            <IconeLupa/></button>
-          <button onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} aria-label={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
-            title={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
-            style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8, width:34, height:31,
-              display:"inline-flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, flex:"0 0 auto" }}>
-            <IconeOlho fechado={ocultar}/></button>
-          <button onClick={sair} title="Sair (pede a senha de novo)" style={{ border:`1px solid ${P.lilas}`, background:P.papel,
-            color:P.roxo, borderRadius:8, padding:"6px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>🔒 Sair</button>
+          <button className="fin-ib" onClick={() => setBusca(true)} aria-label="Buscar lançamentos" title="Buscar (⌘ F)"><IconeLupa/></button>
+          <button className="fin-ib" onClick={() => setOcultar(o => !o)} aria-pressed={ocultar} aria-label={ocultar ? "Mostrar os valores" : "Ocultar os valores"}
+            title={ocultar ? "Mostrar os valores" : "Ocultar os valores"}><IconeOlho fechado={ocultar}/></button>
+          <button className="fin-ib" onClick={() => setEscuro(e => !e)} aria-pressed={escuro} title={escuro ? "Modo claro" : "Modo escuro"}><Ic n={escuro ? "sol" : "lua"} s={17}/></button>
+          <button className="fin-ib" onClick={sair} title="Sair (pede a senha de novo)"><Ic n="sair" s={17}/></button>
         </div>
-        {/* abas como no Google Planilhas */}
-        {<div className="fin-tabs" style={{ display:"flex", overflowX:"auto", background:"#EFEBF8", padding:"0 8px", maxWidth:"100%" }}>
+        {/* abas dos meses (iPad e celular) */}
+        <div className="fin-tabs fin-so-estreito" style={{ display:"flex", overflowX:"auto", padding:"0 8px", maxWidth:"100%", borderTop:`1px solid ${P.linha}` }}>
           <button onClick={() => setAba("geral")} style={tab(aba === "geral")}>Geral</button>
-          {MESES.map((m, i) => <button key={m} onClick={() => setAba(i)} style={tab(aba === i)}>{m}</button>)}
-        </div>}
+          {MESES.map((m, i) => <button key={m} onClick={() => setAba(i)} style={tab(aba === i)}>{m.slice(0, 3)}
+            {!investir && pontoMes[i] && <i style={{ display:"inline-block", width:6, height:6, borderRadius:"50%", marginLeft:5, verticalAlign:"middle", background: pontoMes[i] === "atraso" ? P.vermelho : P.verde }}/>}</button>)}
+        </div>
       </div>
 
       <div style={{ padding:"18px 16px 60px", maxWidth:1380, margin:"0 auto" }}>
         {investir ? <>
-          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
-            <div style={{ background:"#0E6B3B", color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16, letterSpacing:".1em", textTransform:"uppercase" }}>
-              💰 Investimentos · {aba === "geral" ? new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" }) : `${MESES[aba]} ${ano}`}</div>
+          <div className="fin-so-estreito" style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+            <div style={{ fontSize:22, fontWeight:900, letterSpacing:"-.01em" }}>Investimentos</div>
+            <div style={{ fontSize:16, fontWeight:700, color:P.verde }}>· {aba === "geral" ? new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long" }) : `${MESES[aba]} ${ano}`}</div>
           </div>
           {msg && <div style={{ background:"#EEF8F0", border:"1px solid #CDEBD3", color:P.verde, borderRadius:12, padding:"10px 14px", fontSize:12.5, marginBottom:12,
             display:"flex", gap:10 }}><span style={{ flex:1 }}>{msg}</span><button onClick={() => setMsg("")} style={{ border:"none", background:"none", cursor:"pointer", color:P.suave }}>✕</button></div>}
@@ -3699,22 +3807,20 @@ function FinanceiroApp({ senha, sair }) {
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginTop:24, fontSize:11, color:P.suave }}>{barraBackup}</div>
         </> : <>
         {/* faixa do mês + ações */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
-          <div style={{ background: pessoal ? "#5B2BA6" : P.roxo, color:"#fff", borderRadius:10, padding:"10px 22px", fontWeight:900, fontSize:16,
-            letterSpacing:".1em", textTransform:"uppercase" }}>{titulo}{pessoal ? " · Pessoal" : ""}</div>
-          <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
-            <Btn primary onClick={() => fileRef.current?.click()} disabled={reading}>{reading ? "⏳ Lendo..." : "📸 Enviar prints"}</Btn>
-          </div>
+        <div className="fin-so-estreito" style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+          <div style={{ fontSize:22, fontWeight:900, letterSpacing:"-.01em" }}>{titulo}</div>
+          <div style={{ fontSize:16, fontWeight:700, color:P.roxo2 }}>· {pessoal ? "Pessoal" : "Empresa"}</div>
         </div>
+        {reading && <div style={{ background:P.lilasClaro, color:P.roxo2, borderRadius:12, padding:"10px 14px", fontSize:12.5, fontWeight:700, marginBottom:12 }}>Analisando os prints…</div>}
 
         <input ref={fileRef} type="file" accept="image/*,.csv,text/csv" multiple hidden onChange={e => handleFiles(e.target.files)}/>
-        <div onClick={() => !reading && fileRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+        {drag && <div onDragOver={e => { e.preventDefault(); }} onDragLeave={e => { if (e.target === e.currentTarget) setDrag(false); }}
           onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
-          style={{ border:`2px dashed ${drag ? P.roxo2 : P.lilas}`, background: drag ? P.lilasClaro : P.papel, borderRadius:12,
-            padding:"14px 16px", textAlign:"center", cursor:"pointer", marginBottom:12, fontSize:12, color:P.suave }}>
-          <b style={{ color:P.roxo }}>{reading ? "Analisando prints..." : "Arraste os prints ou o CSV do banco aqui"}</b> · PIX, comprovantes, extratos, faturas, CSV do Nubank · {pessoal ? "a IA separa em Fixos, Casa e Parcelas e extras" : "a IA separa em Fixos, Variáveis, Parcelas e Receitas"}
-        </div>
+          style={{ position:"fixed", inset:0, zIndex:60, background:"rgba(76,39,160,.18)", display:"grid", placeItems:"center", padding:20 }}>
+          <div style={{ pointerEvents:"none", background:P.papel, border:`2.5px dashed ${P.roxo2}`, borderRadius:20, padding:"34px 46px", textAlign:"center", color:P.roxo2, boxShadow:"0 20px 50px rgba(40,20,80,.25)" }}>
+            <Ic n="upload" s={34}/><div style={{ fontSize:18, fontWeight:900, marginTop:8 }}>Solte aqui os prints ou o CSV</div>
+            <div style={{ fontSize:12.5, color:P.suave, marginTop:4 }}>{pessoal ? "vai para o Pessoal" : "vai para a Empresa"} · {titulo}</div></div>
+        </div>}
 
         <LembreteBackup onFazer={() => setBackupJan({ modo:"fazer" })}/>
         {msg && (
@@ -3755,11 +3861,11 @@ function FinanceiroApp({ senha, sair }) {
         {/* revisão do que a IA leu */}
         {review.length > 0 && (
           <div style={{ background:P.papel, border:`2px solid ${P.roxo2}`, borderRadius:12, marginBottom:20, overflow:"hidden" }}>
-            <div style={{ background:P.roxo2, color:"#fff", padding:"9px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <b style={{ fontSize:12, letterSpacing:".06em", textTransform:"uppercase" }}>🔎 Confira o que a IA leu ({review.filter(r => !r.repetido).length}{nRepRev ? ` · ${nRepRev} repetido${nRepRev > 1 ? "s" : ""}` : ""})</b>
+            <div style={{ background:P.lilasClaro, color:P.roxo2, padding:"10px 14px", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", borderBottom:`1px solid ${P.linha}` }}>
+              <b style={{ fontSize:13.5 }}>Confira o que a IA leu ({review.filter(r => !r.repetido).length}{nRepRev ? ` · ${nRepRev} repetido${nRepRev > 1 ? "s" : ""}` : ""})</b>
               <div style={{ marginLeft:"auto", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
                 <select value="" onChange={e => { const v = e.target.value; if (v) setReview(rv => rv.map(r => normalize({ ...r, mes:v }))); }}
-                  style={{ background:"rgba(255,255,255,.14)", border:"1px solid rgba(255,255,255,.22)", color:"#fff", borderRadius:8,
+                  style={{ background:P.papel, border:`1px solid ${P.linha}`, color:P.roxo2, borderRadius:8,
                     padding:"4px 8px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" }}>
                   <option value="" style={{ color:P.tinta }}>📅 Mudar mês de todos…</option>
                   {MESES.map((m, i) => <option key={m} value={mesKey(ano, i)} style={{ color:P.tinta }}>{m} {ano}</option>)}
@@ -3768,7 +3874,7 @@ function FinanceiroApp({ senha, sair }) {
                 <HeadBtn onClick={() => setReview(rv => rv.map(r => trocarLado(r, "pessoal")))}>🏠 Tudo Pessoal</HeadBtn>
                 {nRepRev > 0 && nRepRev < review.length && <HeadBtn onClick={() => setReview(rv => rv.filter(r => !r.repetido))}>🧹 Tirar repetidos</HeadBtn>}
                 <HeadBtn onClick={() => setReview([])}>Descartar</HeadBtn>
-                <button onClick={confirmar} style={{ background:"#fff", color:P.roxo, border:"none", borderRadius:8, padding:"5px 12px",
+                <button onClick={confirmar} style={{ background:P.roxo2, color:"#fff", border:"none", borderRadius:8, padding:"5px 12px",
                   fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Salvar lançamentos</button>
               </div>
             </div>
@@ -3905,7 +4011,7 @@ function FinanceiroApp({ senha, sair }) {
                     </div>
                   </div>); })}</>; })()}
               </Janela>}
-              <span style={{ fontSize:12, fontWeight:800, color:P.roxo }}>🔽 Filtrar</span>
+              <span style={{ fontSize:12, fontWeight:800, color:P.roxo2, display:"inline-flex", alignItems:"center", gap:5 }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>Filtrar</span>
               {sel("forma", "Forma", formas.map(f => [f, chipOf("forma", f)?.[3] || f]))}
               {sel("categoria", pessoal ? "Categoria" : "Categoria / serviço", cats.map(c => [c, c]))}
               {sel("status", "Status", [["pago", "Pago"], ["nao_pago", "Não pago"]])}
@@ -4039,6 +4145,7 @@ function FinanceiroApp({ senha, sair }) {
         setTimeout(() => document.querySelector(`tr[data-id="${r.id}"]`)?.scrollIntoView({ behavior:"smooth", block:"center" }), 350);
       }}/>}
       {painelCores && <PainelCores espacoInicial={espaco} cores={cores} onCor={escolherCor} onVoltar={voltarCores} onFechar={() => setPainelCores(false)}/>}
+    </div>
     </div>
     </CoresCtx.Provider></OcultarCtx.Provider>
   );
@@ -4264,7 +4371,7 @@ export default function Financeiro() {
 
   return (
     <div style={{ minHeight:"100vh", background:P.bg, fontFamily:FONT, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <style>{CSS}</style>
+      <style>{CSS()}</style>
       <form onSubmit={e => { e.preventDefault(); if (digitada) { setErro(""); setSenha(digitada); setEstado("conferindo"); } }}
         style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:16, padding:"28px 24px", width:"100%", maxWidth:340,
           boxShadow:"0 10px 30px rgba(59,28,126,.10)", textAlign:"center" }}>
