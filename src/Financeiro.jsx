@@ -3867,12 +3867,19 @@ function FinanceiroApp({ senha, sair }) {
           return (
             <div style={{ background: filtrando ? "#F3EEFD" : "transparent", border: filtrando ? `1px solid ${P.lilas}` : "1px solid transparent", borderRadius:12,
               padding: filtrando ? "8px 12px" : "0 0 2px", marginBottom:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              {paresRep.length > 0 && <button onClick={() => setVerRep(true)} title="Mesmo valor em até 10 dias" style={{ border:"1px solid #F2C26B", background:"#FFF4E0", color:"#8A5A00",
+              {paresRep.length > 0 && <button onClick={() => setVerRep(paresRep)} title="Mesmo valor em até 10 dias" style={{ border:"1px solid #F2C26B", background:"#FFF4E0", color:"#8A5A00",
                 borderRadius:999, padding:"5px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>⚠️ {paresRep.length} possíve{paresRep.length > 1 ? "is" : "l"} repetido{paresRep.length > 1 ? "s" : ""}</button>}
               {verRep && <Janela titulo={`⚠️ Possíveis repetidos · ${MESES[aba]}`} onFechar={() => setVerRep(false)}>
                 <p style={{ fontSize:12, color:P.suave, marginTop:0 }}>Lançamentos com o <b>mesmo valor</b> em até 10 dias. Confira com o extrato: se for a mesma compra, apague um dos dois (fique com o que tem o nome e a data certos).</p>
-                {!paresRep.length && <div style={{ fontSize:13, padding:"10px 0" }}>✅ Nenhum possível repetido neste mês.</div>}
-                {paresRep.map(([a, b]) => (
+                {(() => { const ids = new Set(rows.map(r => r.id));   // a lista fica como estava ao abrir: o que você apagou some, o que ficou aparece com ✓
+                  const vis = verRep.filter(([a, b]) => !repIgn.has(parRep(a, b)) && (ids.has(a.id) || ids.has(b.id)));
+                  return <>{!vis.length && <div style={{ fontSize:13, padding:"10px 0" }}>✅ Nenhum possível repetido neste mês.</div>}
+                {vis.map(([a, b]) => { const fica = [a, b].filter(r => ids.has(r.id)); return fica.length === 1 ? (
+                  <div key={parRep(a, b)} style={{ border:"1px solid #BFE3CB", background:"#F1FAF3", borderRadius:10, marginBottom:8, display:"flex", alignItems:"center", gap:8, padding:"7px 10px", fontSize:12.5 }}>
+                    <span style={{ color:P.suave, width:40 }}>{fica[0].dia ? `${pad(fica[0].dia)}/${fica[0].mes.slice(5)}` : ""}</span>
+                    <span style={{ flex:1, minWidth:0 }}><b>{fica[0].descricao}</b><span style={{ color:P.suave, fontSize:11 }}> · {fica[0].categoria || SECTIONS[fica[0].secao]?.title}</span></span>
+                    <b>{brl(fica[0].valor)}</b><span style={{ color:P.verde, fontWeight:800, fontSize:11.5, whiteSpace:"nowrap" }}>✓ ficou · o repetido foi apagado</span>
+                  </div>) : (
                   <div key={parRep(a, b)} style={{ border:`1px solid ${P.linha}`, borderRadius:10, marginBottom:8, overflow:"hidden" }}>
                     {[a, b].map(r => (
                       <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", fontSize:12.5, borderBottom:`1px solid ${P.linha}` }}>
@@ -3883,7 +3890,7 @@ function FinanceiroApp({ senha, sair }) {
                       </div>))}
                     <button onClick={() => setRepIgn(sg => new Set([...sg, parRep(a, b)]))} style={{ width:"100%", border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
                       Não é repetido (são compras diferentes)</button>
-                  </div>))}
+                  </div>); })}</>; })()}
               </Janela>}
               <span style={{ fontSize:12, fontWeight:800, color:P.roxo }}>🔽 Filtrar</span>
               {sel("forma", "Forma", formas.map(f => [f, chipOf("forma", f)?.[3] || f]))}
