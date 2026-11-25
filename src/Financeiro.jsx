@@ -371,7 +371,8 @@ function normalize(r) {
     ord: Number(r.ord) || 0,     // ordem de criação (mantém a ordem dentro do mesmo dia)
     auto: !!r.auto,              // parcela criada automaticamente (some quando você mexe nela)
     ...(r.repetido ? { repetido: r.repetido } : {}),
-    ...(/^\d{4}-\d{2}-\d{2}$/.test(r.compra || "") ? { compra: r.compra } : {}),   // data real da compra no cartão (a linha fica no mês da fatura)   // só na conferência: já estava salvo
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(r.compra || "") ? { compra: r.compra } : {}),
+    ...(r.repOk ? { repOk: 1 } : {}),   // você conferiu: não é repetido (some do aviso de possíveis repetidos)   // data real da compra no cartão (a linha fica no mês da fatura)   // só na conferência: já estava salvo
   };
 }
 
@@ -483,7 +484,7 @@ function acharRepetidos(rows, ignorados) {
   const pares = [], usados = new Set();
   gs.forEach((a, i) => { for (let j = i + 1; j < gs.length; j++) { const b = gs[j];
     if (usados.has(a.id) || usados.has(b.id) || Math.abs(a.valor - b.valor) >= 0.005 || espacoDe(a.secao) !== espacoDe(b.secao)) continue;
-    if (Math.abs(diaAbs(a) - diaAbs(b)) > 10 || ignorados.has(parRep(a, b))) continue;
+    if (Math.abs(diaAbs(a) - diaAbs(b)) > 10 || ignorados.has(parRep(a, b)) || (a.repOk && b.repOk)) continue;
     pares.push([a, b]); usados.add(a.id); usados.add(b.id); break; } });
   return pares;
 }
@@ -3308,6 +3309,12 @@ function FinanceiroApp({ senha, sair }) {
   const [ultimaBusca, setUltimaBusca] = useState("");
   // 🔍 possíveis repetidos do mês (pares que você marcou como "não é repetido" ficam guardados neste aparelho)
   const [verRep, setVerRep] = useState(false);
+  // "não é repetido": marca as duas linhas (vale em todos os aparelhos) e esconde o par
+  const naoRepetido = pares => {
+    const ids = new Set(pares.flat().map(r => r.id));
+    setRows(rs => rs.map(r => ids.has(r.id) ? marcar(normalize({ ...r, repOk:1 })) : r));
+    setRepIgn(sg => new Set([...sg, ...pares.map(([a, b]) => parRep(a, b))]));
+  };
   // leva até a dupla na tabela e grifa as duas linhas em amarelo
   const verNaTabela = (r, a, b) => {
     const [y, m] = r.mes.split("-"); setVerRep(false); setAno(+y); setAba(+m - 1); setDestaque(new Set([a.id, b.id]));
@@ -3406,6 +3413,7 @@ function FinanceiroApp({ senha, sair }) {
   // Em Parcelas e Extras e em todas as tabelas do Pessoal, as linhas com parcela no Info (ex.: 3/10) ficam sempre no topo
   // 🔽 Filtro das tabelas do mês (forma de pagamento, categoria, status). Linha recém-criada (vazia) sempre aparece.
   const [filtro, setFiltro] = useState({ forma:"", categoria:"", status:"" });
+  const [filtroAberto, setFiltroAberto] = useState(false);
   const filtrando = !!(filtro.forma || filtro.categoria || filtro.status);
   const catDe = r => r.secao === "receita" ? r.servico : r.categoria;
   const passa = r => (!r.descricao && !r.valor) || ((!filtro.forma || r.forma === filtro.forma) && (!filtro.categoria || catDe(r) === filtro.categoria)
@@ -3983,8 +3991,7 @@ function FinanceiroApp({ senha, sair }) {
                 borderRadius:999, padding:"5px 10px", fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer", maxWidth:220 }}>
               <option value="">{rotulo}: todas</option>{ops.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>);
           return (
-            <div style={{ background: filtrando ? "#F3EEFD" : "transparent", border: filtrando ? `1px solid ${P.lilas}` : "1px solid transparent", borderRadius:12,
-              padding: filtrando ? "8px 12px" : "0 0 2px", marginBottom:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <div style={{ marginBottom:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
               {paresRep.length > 0 && <button onClick={() => setVerRep(paresRep)} title="Mesmo valor em até 10 dias" style={{ border:"1px solid #F2C26B", background:"#FFF4E0", color:"#8A5A00",
                 borderRadius:999, padding:"5px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>⚠️ {paresRep.length} possíve{paresRep.length > 1 ? "is" : "l"} repetido{paresRep.length > 1 ? "s" : ""}</button>}
               {verRep && <Janela titulo={`⚠️ Possíveis repetidos · ${MESES[aba]}`} onFechar={() => setVerRep(false)}>
@@ -4010,15 +4017,45 @@ function FinanceiroApp({ senha, sair }) {
                     <div style={{ display:"flex" }}>
                       <button onClick={() => verNaTabela(a, a, b)} style={{ flex:1, border:"none", borderRight:`1px solid ${P.linha}`, background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
                         👁 Ver os dois na tabela</button>
-                      <button onClick={() => setRepIgn(sg => new Set([...sg, parRep(a, b)]))} style={{ flex:1, border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
+                      <button onClick={() => naoRepetido([[a, b]])} style={{ flex:1, border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
                         Não é repetido</button>
                     </div>
-                  </div>); })}</>; })()}
+                  </div>); })}
+                {vis.some(([a, b]) => ids.has(a.id) && ids.has(b.id)) && <div style={{ display:"flex", marginTop:6 }}>
+                  <Btn primary style={{ marginLeft:"auto" }} onClick={() => { naoRepetido(vis.filter(([a, b]) => ids.has(a.id) && ids.has(b.id))); setVerRep(false);
+                    setMsg("✓ Conferido: esses lançamentos não são repetidos e saíram do aviso."); }}>✓ OK, já conferi tudo</Btn></div>}</>; })()}
               </Janela>}
-              <span style={{ fontSize:12, fontWeight:800, color:P.roxo2, display:"inline-flex", alignItems:"center", gap:5 }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>Filtrar</span>
-              {sel("forma", "Forma", formas.map(f => [f, chipOf("forma", f)?.[3] || f]))}
-              {sel("categoria", pessoal ? "Categoria" : "Categoria / serviço", cats.map(c => [c, c]))}
-              {sel("status", "Status", [["pago", "Pago"], ["nao_pago", "Não pago"]])}
+              {(() => { const nAtivos = ["forma", "categoria", "status"].filter(k => filtro[k]).length;
+                return <button onClick={() => setFiltroAberto(a => !a)} aria-expanded={filtroAberto} style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:999, padding:"6px 13px",
+                  border:`1px solid ${filtroAberto || nAtivos ? P.roxo2 : P.linha}`, background: filtroAberto ? P.roxo2 : P.papel, color: filtroAberto ? "#fff" : P.roxo2,
+                  fontFamily:FONT, fontSize:12.5, fontWeight:800, cursor:"pointer" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
+                  Filtrar{nAtivos ? <span style={{ background: filtroAberto ? "#fff" : P.roxo2, color: filtroAberto ? P.roxo2 : "#fff", borderRadius:999, padding:"0 6px", fontSize:10.5 }}>{nAtivos}</span> : null}
+                </button>; })()}
+              {!filtroAberto && ["forma", "categoria", "status"].filter(k => filtro[k]).map(k => (
+                <span key={k} style={{ display:"inline-flex", alignItems:"center", gap:6, background:P.lilasClaro, color:P.roxo2, borderRadius:999, padding:"4px 6px 4px 11px", fontSize:12, fontWeight:700 }}>
+                  {k === "status" ? (filtro[k] === "pago" ? "Pago" : "Não pago") : filtro[k]}
+                  <button onClick={() => setFiltro(f => ({ ...f, [k]: "" }))} aria-label="Tirar filtro" style={{ border:"none", background:P.papel, color:P.roxo2, borderRadius:"50%", width:18, height:18, cursor:"pointer", fontSize:10, lineHeight:1 }}>✕</button>
+                </span>))}
+              {filtroAberto && (() => {
+                const chip = (k, v, t, cor) => { const on = filtro[k] === v;
+                  return <button key={v} onClick={() => setFiltro(f => ({ ...f, [k]: on ? "" : v }))} aria-pressed={on} style={{ display:"inline-flex", alignItems:"center", gap:6, borderRadius:999, padding:"5px 12px",
+                    border:`1px solid ${on ? P.roxo2 : P.linha}`, background: on ? P.roxo2 : P.papel, color: on ? "#fff" : P.tinta, fontFamily:FONT, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                    {cor && <i style={{ width:8, height:8, borderRadius:"50%", background: on ? "#fff" : cor }}/>}{t}</button>; };
+                const grupo = (titulo, itens) => !itens.length ? null : (
+                  <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                    <span style={{ width:86, flex:"0 0 auto", fontSize:10.5, fontWeight:800, letterSpacing:".07em", textTransform:"uppercase", color:P.suave, paddingTop:7 }}>{titulo}</span>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>{itens}</div></div>);
+                return <div style={{ flexBasis:"100%", background:P.papel, border:`1px solid ${P.linha}`, borderRadius:14, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10,
+                  boxShadow:"0 6px 20px rgba(40,20,80,.08)" }}>
+                  {grupo("Forma", formas.map(f => chip("forma", f, chipOf("forma", f)?.[3] || f, COR_FORMA[f] || corChip("forma", f) || P.suave)))}
+                  {grupo(pessoal ? "Categoria" : "Categoria", cats.map(c => chip("categoria", c, c, corCat(c, pessoal ? "pessoal" : "empresa"))))}
+                  {grupo("Status", [chip("status", "pago", "Pago", P.verde), chip("status", "nao_pago", "Não pago", P.vermelho)])}
+                  <div style={{ display:"flex", alignItems:"center", gap:10, borderTop:`1px solid ${P.linha}`, paddingTop:9, fontSize:12 }}>
+                    <span style={{ color:P.suave }}>{filtrando ? `${achados.length} lançamento${achados.length !== 1 ? "s" : ""} encontrado${achados.length !== 1 ? "s" : ""}` : "Escolha uma ou mais opções"}</span>
+                    {filtrando && <button onClick={() => setFiltro({ forma:"", categoria:"", status:"" })} style={{ border:"none", background:"none", color:P.roxo2, fontFamily:FONT, fontWeight:800, cursor:"pointer" }}>Limpar</button>}
+                    <Btn primary style={{ marginLeft:"auto", padding:"6px 14px" }} onClick={() => setFiltroAberto(false)}>Pronto</Btn></div>
+                </div>; })()}
               {filtrando && <>
                 <span style={{ fontSize:12, color:P.tinta }}>
                   <b>{achados.length}</b> lançamento{achados.length !== 1 ? "s" : ""}
