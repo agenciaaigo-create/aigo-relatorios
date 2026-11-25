@@ -309,11 +309,10 @@ td,.fin-cell,.fin-num{font-variant-numeric:tabular-nums}
 .fin-app{display:flex;min-height:100vh}
 .fin-side{display:none}
 .fin-conteudo{flex:1;min-width:0}
-@media (min-width:1100px){
-  .fin-side{display:flex;flex-direction:column;width:212px;flex:0 0 212px;background:${P.papel};border-right:1px solid ${P.linha};padding:18px 12px;position:sticky;top:0;height:100vh;overflow-y:auto}
-  .fin-so-estreito{display:none !important}
-}
-@media (max-width:1099px){.fin-so-largo{display:none !important}}
+/* menu lateral desligado: ela preferiu os meses em cima (abas) também no computador */
+.fin-so-largo{display:none !important}
+.fin-sync-chip{display:none}
+@media (min-width:1100px){.fin-sync-chip{display:block}.fin-sync-ponto{display:none !important}}
 .fin-si{display:flex;align-items:center;gap:9px;width:100%;border:none;background:none;padding:8px 10px;border-radius:9px;font-family:${FONT};font-weight:700;font-size:13px;color:${P.suave};cursor:pointer;text-align:left}
 .fin-si:hover{background:${P.lilasClaro}}
 .fin-si.on{background:${P.lilasClaro};color:${P.roxo2}}
@@ -3774,8 +3773,8 @@ function FinanceiroApp({ senha, sair }) {
               : nuvem.estado === "erro" ? ["#FFF6E5", "#A85A00", "⚠ Sem conexão", "Salvo neste aparelho; sincroniza sozinho quando a internet voltar"]
               : [P.lilasClaro, P.roxo2, "● Sincronizando…", "Enviando para a nuvem"];
             return <>
-              <div title={st[3]} className="fin-so-largo" style={{ fontSize:11.5, fontWeight:700, padding:"6px 11px", borderRadius:100, whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>
-              <span title={`${st[2]} — ${st[3]}`} className="fin-so-estreito" style={{ width:10, height:10, borderRadius:"50%", background:st[1], flex:"0 0 auto" }}/>
+              <div title={st[3]} className="fin-sync-chip" style={{ fontSize:11.5, fontWeight:700, padding:"6px 11px", borderRadius:100, whiteSpace:"nowrap", background:st[0], color:st[1] }}>{st[2]}</div>
+              <span title={`${st[2]} — ${st[3]}`} className="fin-sync-ponto" style={{ width:10, height:10, borderRadius:"50%", background:st[1], flex:"0 0 auto" }}/>
             </>;
           })()}
           <button className="fin-ib" onClick={() => setBusca(true)} aria-label="Buscar lançamentos" title="Buscar (⌘ F)"><IconeLupa/></button>
