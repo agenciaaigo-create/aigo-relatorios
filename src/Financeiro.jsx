@@ -414,6 +414,9 @@ function tirarJaSalvos(novos, salvos) {
   for (const n of novos) {
     let i = salvos.findIndex((s, k) => !usados.has(k) && mesmoValor(s, n) && dataReal(s) && dataReal(s) === dataReal(n) && pareceMesma(s.descricao, n.descricao));
     if (i < 0) i = salvos.findIndex((s, k) => !usados.has(k) && igual(s, n));
+    // mesmo valor em até 10 dias, com nome parecido ou mesma forma de pagamento (ex.: lançado à mão no dia 17 e o extrato trouxe o dia 10)
+    if (i < 0) i = salvos.findIndex((s, k) => !usados.has(k) && mesmoValor(s, n) && !parcelaDe(n) && (+n.valor || 0) >= 5 && dataReal(s) && dataReal(n)
+      && Math.abs(diaAbs(s) - diaAbs(n)) <= 10 && (pareceMesma(s.descricao, n.descricao) || (s.forma && s.forma === n.forma)));
     if (i >= 0) { usados.add(i); const s = salvos[i];
       tirados.push({ ...n, repetido: `Já salvo: ${s.descricao || "(sem nome)"} · ${MESES[+s.mes.slice(5) - 1]}${s.compra ? ` (compra ${dataBR(s.compra).slice(0, 5)})` : ` dia ${s.dia || "?"}`} · ${brl(s.valor)} · ${ESPACOS[espacoDe(s.secao)].icone} ${SECTIONS[s.secao]?.title || ""}` }); }
     else ficam.push(n);
@@ -422,6 +425,17 @@ function tirarJaSalvos(novos, salvos) {
   return { ficam, tirados, marcados };
 }
 const chave = r => [r.mes, r.secao, r.dia, r.descricao.trim().toLowerCase(), r.valor.toFixed(2)].join("|");
+// 🔍 possíveis repetidos já salvos: mesmo valor em até 10 dias (mesmo lado: Empresa ou Pessoal), sem contar parcelas
+const parRep = (a, b) => [a.id, b.id].sort().join("~");
+function acharRepetidos(rows, ignorados) {
+  const gs = rows.filter(r => r.secao !== "receita" && (+r.valor || 0) >= 1 && !parcelaDe(r) && !r.auto && (r.descricao || "").trim());
+  const pares = [], usados = new Set();
+  gs.forEach((a, i) => { for (let j = i + 1; j < gs.length; j++) { const b = gs[j];
+    if (usados.has(a.id) || usados.has(b.id) || Math.abs(a.valor - b.valor) >= 0.005 || espacoDe(a.secao) !== espacoDe(b.secao)) continue;
+    if (Math.abs(diaAbs(a) - diaAbs(b)) > 10 || ignorados.has(parRep(a, b))) continue;
+    pares.push([a, b]); usados.add(a.id); usados.add(b.id); break; } });
+  return pares;
+}
 
 const chipOf = (field, val) => CHIPS[field]?.find(o => o[0] === val);
 const cellText = (r, c) => {
@@ -3209,6 +3223,10 @@ function FinanceiroApp({ senha, sair }) {
   const [sel, setSel] = useState(() => new Set());
   const [destaque, setDestaque] = useState(() => new Set());
   const [ultimaBusca, setUltimaBusca] = useState("");
+  // 🔍 possíveis repetidos do mês (pares que você marcou como "não é repetido" ficam guardados neste aparelho)
+  const [verRep, setVerRep] = useState(false);
+  const [repIgn, setRepIgn] = useState(() => new Set(lerJSON("aigo-fin-rep-ign", [])));
+  useEffect(() => { try { localStorage.setItem("aigo-fin-rep-ign", JSON.stringify([...repIgn].slice(-500))); } catch {} }, [repIgn]);
   const [salvo, setSalvo] = useState({ ok:true, quando:null });
   const [apagados, setApagados] = useState(() => lerJSON(APAG_KEY, []));
   const [nuvem, setNuvem] = useState({ estado:"conectando", quando:null });   // conectando | enviando | ok | sem | erro
@@ -3835,6 +3853,8 @@ function FinanceiroApp({ senha, sair }) {
 
         {aba !== "geral" && (() => {
           const comDados = doMes.filter(r => r.descricao || r.valor);
+          const vizinhos = rowsEsp.filter(r => Math.abs(mesNum(r.mes) - mesNum(mes)) <= 1);
+          const paresRep = acharRepetidos(vizinhos, repIgn).filter(([a, b]) => a.mes === mes || b.mes === mes);
           const formas = [...new Set(comDados.map(r => r.forma).filter(Boolean))].sort((a, b) => a.localeCompare(b));
           const cats = [...new Set(comDados.map(catDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
           const achados = comDados.filter(passa), saiu = achados.filter(r => r.secao !== "receita"), entrou = achados.filter(r => r.secao === "receita");
@@ -3847,6 +3867,24 @@ function FinanceiroApp({ senha, sair }) {
           return (
             <div style={{ background: filtrando ? "#F3EEFD" : "transparent", border: filtrando ? `1px solid ${P.lilas}` : "1px solid transparent", borderRadius:12,
               padding: filtrando ? "8px 12px" : "0 0 2px", marginBottom:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              {paresRep.length > 0 && <button onClick={() => setVerRep(true)} title="Mesmo valor em até 10 dias" style={{ border:"1px solid #F2C26B", background:"#FFF4E0", color:"#8A5A00",
+                borderRadius:999, padding:"5px 12px", fontFamily:FONT, fontSize:12, fontWeight:800, cursor:"pointer" }}>⚠️ {paresRep.length} possíve{paresRep.length > 1 ? "is" : "l"} repetido{paresRep.length > 1 ? "s" : ""}</button>}
+              {verRep && <Janela titulo={`⚠️ Possíveis repetidos · ${MESES[aba]}`} onFechar={() => setVerRep(false)}>
+                <p style={{ fontSize:12, color:P.suave, marginTop:0 }}>Lançamentos com o <b>mesmo valor</b> em até 10 dias. Confira com o extrato: se for a mesma compra, apague um dos dois (fique com o que tem o nome e a data certos).</p>
+                {!paresRep.length && <div style={{ fontSize:13, padding:"10px 0" }}>✅ Nenhum possível repetido neste mês.</div>}
+                {paresRep.map(([a, b]) => (
+                  <div key={parRep(a, b)} style={{ border:`1px solid ${P.linha}`, borderRadius:10, marginBottom:8, overflow:"hidden" }}>
+                    {[a, b].map(r => (
+                      <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", fontSize:12.5, borderBottom:`1px solid ${P.linha}` }}>
+                        <span style={{ color:P.suave, width:40 }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : MESES[+r.mes.slice(5) - 1].slice(0, 3)}</span>
+                        <span style={{ flex:1, minWidth:0 }}><b>{r.descricao}</b><span style={{ color:P.suave, fontSize:11 }}> · {r.categoria || SECTIONS[r.secao]?.title} · {r.forma}</span></span>
+                        <b>{brl(r.valor)}</b>
+                        <button onClick={() => remove(r.id)} style={{ border:"none", background:"#FFE3E3", color:P.vermelho, borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>Apagar</button>
+                      </div>))}
+                    <button onClick={() => setRepIgn(sg => new Set([...sg, parRep(a, b)]))} style={{ width:"100%", border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
+                      Não é repetido (são compras diferentes)</button>
+                  </div>))}
+              </Janela>}
               <span style={{ fontSize:12, fontWeight:800, color:P.roxo }}>🔽 Filtrar</span>
               {sel("forma", "Forma", formas.map(f => [f, chipOf("forma", f)?.[3] || f]))}
               {sel("categoria", pessoal ? "Categoria" : "Categoria / serviço", cats.map(c => [c, c]))}
