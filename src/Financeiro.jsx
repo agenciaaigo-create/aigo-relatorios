@@ -3225,6 +3225,14 @@ function FinanceiroApp({ senha, sair }) {
   const [ultimaBusca, setUltimaBusca] = useState("");
   // 🔍 possíveis repetidos do mês (pares que você marcou como "não é repetido" ficam guardados neste aparelho)
   const [verRep, setVerRep] = useState(false);
+  // leva até a dupla na tabela e grifa as duas linhas em amarelo
+  const verNaTabela = (r, a, b) => {
+    const [y, m] = r.mes.split("-"); setVerRep(false); setAno(+y); setAba(+m - 1); setDestaque(new Set([a.id, b.id]));
+    const outro = r.id === a.id ? b : a;
+    setMsg(`🔎 Os dois possíveis repetidos estão grifados em amarelo: ${a.descricao} (${a.dia ? pad(a.dia) + "/" + a.mes.slice(5) : ""}) e ${b.descricao} (${b.dia ? pad(b.dia) + "/" + b.mes.slice(5) : ""})`
+      + (outro.mes !== r.mes ? ` — o outro está em ${MESES[+outro.mes.slice(5) - 1]}.` : "."));
+    setTimeout(() => document.querySelector(`tr[data-id="${r.id}"]`)?.scrollIntoView({ behavior:"smooth", block:"center" }), 350);
+  };
   const [repIgn, setRepIgn] = useState(() => new Set(lerJSON("aigo-fin-rep-ign", [])));
   useEffect(() => { try { localStorage.setItem("aigo-fin-rep-ign", JSON.stringify([...repIgn].slice(-500))); } catch {} }, [repIgn]);
   const [salvo, setSalvo] = useState({ ok:true, quando:null });
@@ -3882,14 +3890,19 @@ function FinanceiroApp({ senha, sair }) {
                   </div>) : (
                   <div key={parRep(a, b)} style={{ border:`1px solid ${P.linha}`, borderRadius:10, marginBottom:8, overflow:"hidden" }}>
                     {[a, b].map(r => (
-                      <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", fontSize:12.5, borderBottom:`1px solid ${P.linha}` }}>
+                      <div key={r.id} onClick={e => { if (e.target.closest("button")) return; verNaTabela(r, a, b); }} title="Clique para ver na tabela"
+                        style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", fontSize:12.5, borderBottom:`1px solid ${P.linha}`, cursor:"pointer" }}>
                         <span style={{ color:P.suave, width:40 }}>{r.dia ? `${pad(r.dia)}/${r.mes.slice(5)}` : MESES[+r.mes.slice(5) - 1].slice(0, 3)}</span>
                         <span style={{ flex:1, minWidth:0 }}><b>{r.descricao}</b><span style={{ color:P.suave, fontSize:11 }}> · {r.categoria || SECTIONS[r.secao]?.title} · {r.forma}</span></span>
                         <b>{brl(r.valor)}</b>
                         <button onClick={() => remove(r.id)} style={{ border:"none", background:"#FFE3E3", color:P.vermelho, borderRadius:7, padding:"3px 9px", fontFamily:FONT, fontSize:11, fontWeight:800, cursor:"pointer" }}>Apagar</button>
                       </div>))}
-                    <button onClick={() => setRepIgn(sg => new Set([...sg, parRep(a, b)]))} style={{ width:"100%", border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
-                      Não é repetido (são compras diferentes)</button>
+                    <div style={{ display:"flex" }}>
+                      <button onClick={() => verNaTabela(a, a, b)} style={{ flex:1, border:"none", borderRight:`1px solid ${P.linha}`, background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
+                        👁 Ver os dois na tabela</button>
+                      <button onClick={() => setRepIgn(sg => new Set([...sg, parRep(a, b)]))} style={{ flex:1, border:"none", background:"#F7F4FD", color:P.roxo, padding:"6px", fontFamily:FONT, fontSize:11.5, fontWeight:700, cursor:"pointer" }}>
+                        Não é repetido</button>
+                    </div>
                   </div>); })}</>; })()}
               </Janela>}
               <span style={{ fontSize:12, fontWeight:800, color:P.roxo }}>🔽 Filtrar</span>
