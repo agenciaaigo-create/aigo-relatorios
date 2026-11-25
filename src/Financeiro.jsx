@@ -1365,12 +1365,15 @@ function GeralPessoal({ rows, ano, onPick }) {
     const rs = doAno.filter(r => r.mes === mesKey(ano, m));
     const sum = s => rs.filter(r => r.secao === s).reduce((t, r) => t + r.valor, 0);
     const fixo = sum("p_fixo"), casa = sum("p_casa"), extra = sum("p_extra");
-    return { m, mes:m, ano, nome, rotulo:nome.slice(0, 3), fixo, casa, extra, gastos: fixo + casa + extra, receitas:0, vazio: !rs.length };
+    // parcelas separadas: da Dani (Parcelas e extras) e da casa (Gastos Casa)
+    const parc = s => rs.filter(r => r.secao === s && parcela(r)).reduce((t, r) => t + r.valor, 0);
+    return { m, mes:m, ano, nome, rotulo:nome.slice(0, 3), fixo, casa, extra, gastos: fixo + casa + extra, receitas:0, vazio: !rs.length,
+      pDani: parc("p_extra"), pCasa: parc("p_casa") };
   });
   const tot = k => data.reduce((s, d) => s + d[k], 0);
   const comDados = data.filter(d => !d.vazio);
   const maisCaro = [...comDados].sort((a, b) => b.gastos - a.gastos)[0];
-  const th = { background:P.lilas, fontSize:11, fontWeight:700, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
+  const th = { background:P.thBg, color:P.suave, fontSize:10, fontWeight:700, letterSpacing:".05em", textTransform:"uppercase", padding:"9px 10px", textAlign:"right", whiteSpace:"nowrap", borderBottom:`1px solid ${P.linha}` };
   const td = { fontSize:12, padding:"7px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -1389,19 +1392,21 @@ function GeralPessoal({ rows, ano, onPick }) {
           <table style={{ borderCollapse:"collapse", width:"100%", minWidth:620, fontFamily:FONT, color:P.tinta }}>
             <thead><tr>
               <th style={{ ...th, textAlign:"left" }}>Mês</th><th style={th}>Gastos fixos</th><th style={th}>Gastos casa</th>
-              <th style={th}>Parcelas e extras</th><th style={th}>Total</th>
+              <th style={th}>Parcelas e extras</th>
+              <th style={th}><span style={{ color:"#C2185B" }}>● Parcelas Dani</span></th><th style={th}><span style={{ color:P.roxo2 }}>● Parcelas Casa</span></th><th style={th}>Total</th>
             </tr></thead>
             <tbody>
               {data.map(d => (
                 <tr key={d.m} className="fin-row" onClick={() => onPick(d.m)} style={{ cursor:"pointer", opacity: d.vazio ? .45 : 1 }}>
                   <td style={{ ...td, textAlign:"left", fontWeight:700 }}>{d.nome}</td>
                   <td style={td}>{brl(d.fixo)}</td><td style={td}>{brl(d.casa)}</td><td style={td}>{brl(d.extra)}</td>
+                  <td style={{ ...td, color: TEMA_ESC ? "#F48FB1" : "#C2185B", fontWeight:700 }}>{brl(d.pDani)}</td><td style={{ ...td, color:P.roxo2, fontWeight:700 }}>{brl(d.pCasa)}</td>
                   <td style={{ ...td, fontWeight:800 }}>{brl(d.gastos)}</td>
                 </tr>
               ))}
               <tr style={{ background:P.lilasClaro }}>
                 <td style={{ ...td, textAlign:"left", fontWeight:800 }}>Total</td>
-                {["fixo","casa","extra","gastos"].map(k => <td key={k} style={{ ...td, fontWeight:800 }}>{brl(tot(k))}</td>)}
+                {["fixo","casa","extra","pDani","pCasa","gastos"].map(k => <td key={k} style={{ ...td, fontWeight:800, color: k === "pDani" ? (TEMA_ESC ? "#F48FB1" : "#C2185B") : k === "pCasa" ? P.roxo2 : undefined }}>{brl(tot(k))}</td>)}
               </tr>
             </tbody>
           </table>
@@ -3157,7 +3162,7 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
   const tot = k => data.reduce((s, d) => s + d[k], 0);
   const max = Math.max(1, ...data.flatMap(d => [d.receitas, d.gastos]));
   const H = 170;
-  const th = { background:P.lilas, fontSize:11, fontWeight:700, padding:"7px 10px", textAlign:"right", whiteSpace:"nowrap" };
+  const th = { background:P.thBg, color:P.suave, fontSize:10, fontWeight:700, letterSpacing:".05em", textTransform:"uppercase", padding:"9px 10px", textAlign:"right", whiteSpace:"nowrap", borderBottom:`1px solid ${P.linha}` };
   const td = { fontSize:12, padding:"7px 10px", textAlign:"right", borderBottom:`1px solid ${P.linha}`, whiteSpace:"nowrap" };
 
   const abas = (
