@@ -3844,31 +3844,6 @@ function FinanceiroApp({ senha, sair }) {
           </div>
         )}
 
-        {historico.length > 0 && (
-          <details style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, marginBottom:14, fontSize:12 }}>
-            <summary style={{ padding:"10px 14px", cursor:"pointer", fontWeight:700, color:P.roxo }}>
-              🕘 Conferir importações ({historico.length}) — veja o que foi salvo e onde
-            </summary>
-            <div style={{ padding:"0 14px 10px" }}>
-              {historico.map(h => {
-                const existem = rows.filter(r => h.ids.includes(r.id)).length;
-                return (
-                  <div key={h.id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"8px 0", borderTop:`1px solid ${P.linha}` }}>
-                    <span style={{ color:P.suave, minWidth:110 }}>{new Date(h.quando).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>
-                    <span style={{ flex:1, color:P.tinta }}>{h.onde || `${h.ids.length} lançamentos`}</span>
-                    <span style={{ fontWeight:700, color: existem === h.ids.length ? P.verde : P.laranja }}>
-                      {existem === h.ids.length ? `✓ ${existem} salvos` : `${existem} de ${h.ids.length} ainda salvos`}
-                    </span>
-                    <button onClick={() => verImportacao(h)} style={{ border:`1px solid ${P.lilas}`, background:P.papel, color:P.roxo, borderRadius:8,
-                      padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor:"pointer" }}>👁 Ver</button>
-                    <button onClick={() => desfazerImportacao(h)} disabled={!existem} style={{ border:`1px solid #F5C6C6`, background:P.papel, color:P.vermelho, borderRadius:8,
-                      padding:"3px 10px", fontFamily:FONT, fontSize:11, fontWeight:700, cursor: existem ? "pointer" : "default", opacity: existem ? 1 : .4 }}>↩ Desfazer</button>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
-        )}
 
         {/* revisão do que a IA leu */}
         {review.length > 0 && (
