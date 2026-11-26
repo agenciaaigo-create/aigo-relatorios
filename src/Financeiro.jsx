@@ -3154,10 +3154,12 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
     const sum = f => rs.filter(f).reduce((s, r) => s + r.valor, 0);
     const receitas = sum(r => r.secao === "receita");
     const fixo = sum(r => r.secao === "fixo"), variavel = sum(r => r.secao === "variavel"), extra = sum(r => r.secao === "extra");
+    // parcelas separadas: longas (empréstimo e consórcio, em Gastos variáveis) e curtas (em Parcelas e extras)
+    const pLonga = sum(r => r.secao === "variavel" && parcela(r)), pCurta = sum(r => r.secao === "extra" && parcela(r));
     const gastos = fixo + variavel + extra;
     return { nome, m, receitas, fixo, variavel, extra, gastos, saldo: receitas - gastos,
       social: sum(r => r.secao === "receita" && r.servico === "Social Media"),
-      foto: sum(r => r.secao === "receita" && r.servico === "Fotografia"),
+      foto: sum(r => r.secao === "receita" && r.servico === "Fotografia"), pLonga, pCurta,
       vazio: !rs.length };
   });
   const tot = k => data.reduce((s, d) => s + d[k], 0);
@@ -3231,24 +3233,29 @@ function Geral({ rows, ano, onPick, clientes, onCliente, onApagarCliente, onMeta
 
       <div style={{ background:P.papel, border:`1px solid ${P.linha}`, borderRadius:12, overflow:"hidden" }}>
         <div style={{ overflowX:"auto" }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:760, fontFamily:FONT, color:P.tinta }}>
+          <table className="fin-zebra" style={{ borderCollapse:"collapse", width:"100%", minWidth:1000, fontFamily:FONT, color:P.tinta }}>
             <thead><tr>
               <th style={{ ...th, textAlign:"left" }}>Mês</th>
               <th style={th}>Receitas</th><th style={th}>Gastos fixos</th><th style={th}>Variáveis</th>
-              <th style={th}>Parcelas e extras</th><th style={th}>Total gastos</th><th style={th}>Saldo</th>
+              <th style={th}>Parcelas e extras</th>
+              <th style={th} title="Parcelas que estão em Gastos variáveis (empréstimo, consórcio)"><span style={{ color:"#1F5FBF" }}>● Empréstimo e consórcio</span></th>
+              <th style={th} title="Parcelas que estão em Parcelas e extras"><span style={{ color:P.laranja }}>● Parcelas</span></th>
+              <th style={th}>Total gastos</th><th style={th}>Saldo</th>
             </tr></thead>
             <tbody>
               {data.map(d => (
                 <tr key={d.m} className="fin-row" onClick={() => onPick(d.m)} style={{ cursor:"pointer", opacity:d.vazio ? .45 : 1 }}>
                   <td style={{ ...td, textAlign:"left", fontWeight:700 }}>{d.nome}</td>
                   <td style={td}>{brl(d.receitas)}</td><td style={td}>{brl(d.fixo)}</td><td style={td}>{brl(d.variavel)}</td>
-                  <td style={td}>{brl(d.extra)}</td><td style={{ ...td, fontWeight:700 }}>{brl(d.gastos)}</td>
+                  <td style={td}>{brl(d.extra)}</td>
+                  <td style={{ ...td, color: TEMA_ESC ? "#7FB0FF" : "#1F5FBF", fontWeight:700 }}>{brl(d.pLonga)}</td><td style={{ ...td, color:P.laranja, fontWeight:700 }}>{brl(d.pCurta)}</td>
+                  <td style={{ ...td, fontWeight:700 }}>{brl(d.gastos)}</td>
                   <td style={{ ...td, fontWeight:800, color:d.saldo >= 0 ? P.verde : P.vermelho }}>{brl(d.saldo)}</td>
                 </tr>
               ))}
               <tr style={{ background:P.lilasClaro }}>
                 <td style={{ ...td, textAlign:"left", fontWeight:800 }}>Total</td>
-                {["receitas","fixo","variavel","extra","gastos"].map(k => <td key={k} style={{ ...td, fontWeight:800 }}>{brl(tot(k))}</td>)}
+                {["receitas","fixo","variavel","extra","pLonga","pCurta","gastos"].map(k => <td key={k} style={{ ...td, fontWeight:800, color: k === "pLonga" ? (TEMA_ESC ? "#7FB0FF" : "#1F5FBF") : k === "pCurta" ? P.laranja : undefined }}>{brl(tot(k))}</td>)}
                 <td style={{ ...td, fontWeight:900, color:tot("saldo") >= 0 ? P.verde : P.vermelho }}>{brl(tot("saldo"))}</td>
               </tr>
             </tbody>
