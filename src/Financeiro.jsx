@@ -2340,10 +2340,11 @@ function MesInvest({ mm, itens, movs, planos, movsProj, merc, meta, v, vs, hoje,
         <div style={caixaK}><div style={rotK}>{futuro ? "Vai render (previsão)" : atual ? "Rendimento do mês" : "Rendeu"}</div>
           <div style={{ fontSize:22, fontWeight:900, marginTop:3, color: rend >= 0 ? P.verde : P.vermelho }}>{vs(rend)}</div>
           <div style={{ fontSize:11, color:P.suave }}>{ant ? `${rend >= ant ? "▲" : "▼"} ${oculto ? TRACOS : brl(Math.abs(rend - ant))} vs mês anterior` : "\u00a0"}</div></div>
-        <div style={caixaK}><div style={rotK}>{futuro ? "Você planejou" : "Você colocou / tirou"}</div>
-          <div style={{ fontSize:22, fontWeight:900, marginTop:3, color: colocou - tirou >= 0 ? "#1F5FBF" : P.vermelho }}>{colocou - tirou ? vs(colocou - tirou) : "—"}</div>
-          <div style={{ fontSize:11, color:P.suave }}>{colocou ? `colocar ${v(colocou)}` : ""}{colocou && tirou ? " · " : ""}{tirou ? `tirar ${v(tirou)}` : ""}{!colocou && !tirou && !transferiu ? "nada" : ""}
-            {transferiu ? <span style={{ color:"#5B2BA6" }}>{colocou || tirou ? " · " : ""}↔ mudou de lugar {v(transferiu)}</span> : ""}</div></div>
+        <div style={caixaK}><div style={rotK}>{futuro ? "Você planeja investir" : "Você investiu no mês"}</div>
+          {/* número grande = soma dos aportes (dinheiro novo); resgates aparecem embaixo, à parte */}
+          <div style={{ fontSize:22, fontWeight:900, marginTop:3, color:"#1F5FBF" }}>{colocou ? v(colocou) : "—"}</div>
+          <div style={{ fontSize:11, color:P.suave }}>{tirou ? <span style={{ color:P.vermelho }}>tirou {v(tirou)}</span> : ""}{tirou ? ` · saldo do mês ${vs(colocou - tirou)}` : ""}{!colocou && !tirou && !transferiu ? "nada" : ""}
+            {transferiu ? <span style={{ color:"#5B2BA6" }}>{tirou ? " · " : ""}↔ mudou de lugar {v(transferiu)} (não conta)</span> : ""}</div></div>
         <div style={caixaK}><div style={rotK}>Patrimônio no fim do mês</div>
           <div style={{ fontSize:22, fontWeight:900, marginTop:3 }}>{v(total)}</div>
           <div style={{ fontSize:11, color:P.suave }}>{futuro || atual ? "previsão" : "fechamento"}</div></div>
