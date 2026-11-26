@@ -1625,7 +1625,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         Cadastre cada investimento uma vez (caixinhas com o % do CDI, ações com a quantidade e quanto pagou, e o saldo parado para investir).
         Depois o site acompanha sozinho o CDI e as cotações.</p>
       <Btn primary onClick={() => setForm({ tipo:"cdi", pct:100, dataBase:hoje })}>+ Adicionar investimento</Btn>
-      {form && <FormInvest inicial={form} onFechar={() => setForm(null)} onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }} merc={merc}/>}
+      {form && <FormInvest inicial={form} itens={itens} onFechar={() => setForm(null)} onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }} merc={merc}/>}
     </div>
   );
 
@@ -1800,7 +1800,7 @@ function Investimentos({ invest, onSalvar, onApagar, setMsg, ano, aba, onAba }) 
         (22,5% até 6 meses, 20% até 1 ano, 17,5% até 2 anos e 15% depois), sem o IOF dos primeiros 30 dias. Confira com o app do banco e use “Ajustar saldo” quando quiser.
         Cotações com cerca de 15 minutos de atraso. Isto não é recomendação de investimento.</div>
 
-      {form && <FormInvest inicial={form} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
+      {form && <FormInvest inicial={form} itens={itens} onFechar={() => setForm(null)} merc={merc} onApagar={form.id ? () => { onApagar(form.id); setForm(null); } : null}
         onSalvar={(id, x) => { onSalvar(id, x); setForm(null); }}/>}
       {formMov && <FormMov inicial={formMov} plano={formMov.plano} itens={itens} merc={merc} onFechar={() => setFormMov(null)} onSalvar={(id, x) => { onSalvar(id, x); if (x.kind === "mov" || x.kind === "plano") setFormMov(null); }}/>}
     </div>
@@ -2474,7 +2474,9 @@ function Campo({ rotulo, children, dica }) {
   return <label style={{ display:"block", marginBottom:10 }}><span style={{ display:"block", fontSize:11, fontWeight:800, color:P.suave, marginBottom:4, letterSpacing:".04em" }}>{rotulo}</span>
     {children}{dica && <span style={{ display:"block", fontSize:10.5, color:P.suave, marginTop:3 }}>{dica}</span>}</label>;
 }
-function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
+function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc, itens = [] }) {
+  // de onde veio o dinheiro do saldo: novo (aporte do mês), de outro investimento (transferência) ou já existia
+  const [origem, setOrigem] = useState(inicial.id ? "existia" : "novo");
   const [f, setF] = useState({ nome:"", instituicao:"", pct:100, qtd:"", ...inicial, liqTxt: inicial.liq ? num(inicial.liq) : "", saldoTxt: inicial.tipo === "acao" ? (inicial.custo ? num(inicial.custo) : "") : (inicial.saldo ? num(inicial.saldo) : "") });
   const set = p => setF(x => ({ ...x, ...p }));
   const a = f.ticker && merc.acoes[f.ticker];
@@ -2488,7 +2490,17 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
     if (f.tipo === "cdi") Object.assign(x, { pct: Number(String(f.pct).replace(",", ".")) || 100, saldo: valor, liq: parseValor(f.liqTxt) || 0 });
     if (f.tipo === "acao") Object.assign(x, { ticker: (f.ticker || "").toUpperCase().trim(), custo: valor, qtd: parseInt(f.qtd) || sugestaoQtd || 0 });
     if (f.tipo === "caixa") Object.assign(x, { saldo: valor });
-    onSalvar(f.id || uid(), x);
+    const id = f.id || uid();
+    if (f.tipo !== "acao" && origem !== "existia" && valor) {
+      // o saldo vira movimentação: começa zerado na véspera e o dinheiro entra no dia
+      const dia = x.dataBase;
+      Object.assign(x, { saldo:0, liq:0, dataBase: somaDias(dia, -1), saldoEm: Date.now() });
+      onSalvar(id, x);
+      if (origem === "novo") onSalvar(uid(), { kind:"mov", inv:id, tipo:"aporte", valor, data:dia, info:"saldo inicial" });
+      else onSalvar(uid(), { kind:"mov", inv:origem, tipo:"transf", para:id, valor, data:dia, info:"saldo inicial" });
+      return;
+    }
+    onSalvar(id, x);
   }
   return (
     <Janela titulo={f.id ? "Editar investimento" : "Novo investimento"} onFechar={onFechar}>
@@ -2508,6 +2520,12 @@ function FormInvest({ inicial, onSalvar, onFechar, onApagar, merc }) {
       {f.tipo === "acao" && <Campo rotulo="QUANTAS COTAS" dica={sugestaoQtd ? `Pela cotação de ${dataBR(f.dataBase || hojeStr())} (${brl(precoData)}), dá cerca de ${sugestaoQtd} cota${sugestaoQtd > 1 ? "s" : ""}.` : null}>
         <input value={f.qtd} inputMode="numeric" onChange={e => set({ qtd:e.target.value.replace(/\D/g, "") })} placeholder={sugestaoQtd ? String(sugestaoQtd) : "10"} style={campoSt}/></Campo>}
       <Campo rotulo={f.tipo === "acao" ? "DATA DA COMPRA" : "DESDE (DATA DO SALDO)"}><input type="date" value={f.dataBase || ""} onChange={e => set({ dataBase:e.target.value })} style={campoSt}/></Campo>
+      {f.tipo !== "acao" && <Campo rotulo="DE ONDE VEIO ESSE DINHEIRO?" dica={origem === "novo" ? "Conta como aporte (entra no “Você colocou” do mês)." : origem === "existia" ? "Não conta como aporte nem transferência." : "Vira transferência: sai de lá e entra aqui, o total investido não muda."}>
+        <select value={origem} onChange={e => setOrigem(e.target.value)} style={campoSt}>
+          <option value="novo">Dinheiro novo (aporte)</option>
+          {itens.filter(i => i.id !== f.id && i.tipo !== "acao").map(i => <option key={i.id} value={i.id}>Saiu de: {i.nome} {i.instituicao ? `· ${i.instituicao}` : ""}</option>)}
+          <option value="existia">{f.id ? "Deixar como está (o saldo já existia)" : "Já existia, só estou cadastrando"}</option>
+        </select></Campo>}
       <Campo rotulo="META (OPCIONAL, R$)"><input value={f.meta ? num(f.meta) : ""} inputMode="decimal" onChange={e => set({ meta: parseValor(e.target.value) })} placeholder="Ex.: 30.000,00" style={campoSt}/></Campo>
       <div style={{ display:"flex", gap:8, marginTop:6 }}>
         {onApagar && <Btn onClick={() => window.confirm("Tirar este investimento?") && onApagar()} style={{ color:P.vermelho, borderColor:"#F5C6C6" }}>Tirar</Btn>}
